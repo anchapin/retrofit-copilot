@@ -1,0 +1,3 @@
+# Retrofit Copilot — slice 1 environment (CPU-only, no GPU packages).
+numpy>=1.26
+pytest>=8.0

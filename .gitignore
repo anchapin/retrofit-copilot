@@ -1,0 +1,6 @@
+# Retrofit Copilot scratch — never committed.
+.scratch/
+runs/
+__pycache__/
+*.pyc
+.venv/
