@@ -1,10 +1,30 @@
-"""Tests for the run manifest: a recorded run must reload to the same manifest."""
+"""Tests for the run manifest: a recorded run must reload to the same manifest.
+
+The recorded-run test reads the committed fixtures under ``tests/fixtures/``
+(a trimmed copy of the runs recorded in ``REPORT.md``) by default, so it runs
+in a clean clone with no EnergyPlus and no ``runs/`` directory.  To run it
+against a live ``runs/`` directory instead, point the environment variable at
+it::
+
+    RETROFIT_RUNS_DIR=/path/to/runs python3 -m pytest tests/test_manifest.py -q
+"""
 
 import json
+import os
+from pathlib import Path
 
 import pytest
 
 import run_energyplus as R
+
+FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+#: The recorded runs: the committed fixtures by default, or the live
+#: ``runs/`` directory given in ``$RETROFIT_RUNS_DIR``.
+RUNS_DIR = (
+    Path(os.environ["RETROFIT_RUNS_DIR"]).expanduser()
+    if os.environ.get("RETROFIT_RUNS_DIR")
+    else FIXTURES_DIR
+)
 
 
 def _sample_manifest():
@@ -75,14 +95,13 @@ def test_missing_idf_raises_before_any_simulation(tmp_path):
 
 def test_recorded_runs_reload_to_the_same_manifest():
     """Every run recorded by the POC reloads byte-identically."""
-    if not R.RUNS_DIR.is_dir():
-        pytest.skip("no recorded runs in this checkout")
     checked = 0
-    for rid in R.list_runs():
-        path = R.manifest_path(rid)
+    for rid in R.list_runs(RUNS_DIR):
+        path = R.manifest_path(rid, runs_dir=RUNS_DIR)
         with open(path) as fh:
             on_disk = json.load(fh)
-        assert R.load_manifest(rid) == on_disk
+        assert R.load_manifest(rid, runs_dir=RUNS_DIR) == on_disk
+        # and re-dumping the loaded manifest reproduces the file byte for byte
+        assert json.dumps(on_disk, indent=2, sort_keys=True) + "\n" == path.read_text()
         checked += 1
-    if checked == 0:
-        pytest.skip("no recorded runs in this checkout")
+    assert checked > 0, f"no recorded runs to reload in {RUNS_DIR}"
