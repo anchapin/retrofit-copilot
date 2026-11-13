@@ -1,0 +1,6 @@
+{
+  "electricity_price_usd_per_kwh": 0.13,
+  "natural_gas_price_usd_per_kwh": 0.06,
+  "electricity_co2_kg_per_kwh": 0.37,
+  "natural_gas_co2_kg_per_kwh": 0.18
+}

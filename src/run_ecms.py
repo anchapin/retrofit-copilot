@@ -3,6 +3,27 @@ rank them, and compare the simulation-grounded ranking with the LLM prior.
 
     python src/run_ecms.py --all
 
+The energy prices and emission factors used for the cost and carbon columns
+come from a JSON *factors file*; the default is the shipped
+``config/factors.placeholder.json`` (the PLACEHOLDER factor set) and any
+other file may be passed with ``--factors <path.json>``:
+
+    python src/run_ecms.py --all --factors my_factors.json
+
+The file must be a JSON object with exactly these four keys (each a finite,
+non-negative number)::
+
+    {
+      "electricity_price_usd_per_kwh": 0.13,
+      "natural_gas_price_usd_per_kwh": 0.06,
+      "electricity_co2_kg_per_kwh": 0.37,
+      "natural_gas_co2_kg_per_kwh": 0.18
+    }
+
+The source path of the factor set is recorded in the headline table and in
+``ecm_results.json``; the factor-derived columns only carry the PLACEHOLDER
+marker when the shipped placeholder factor set is used.
+
 Twelve EnergyPlus runs are recorded (2 model baselines + 5 ECMs x 2 models);
 every run gets a run id, a run directory and a manifest under
 ``runs/``.  The LLM-prior control
@@ -128,8 +149,18 @@ def ecm_metrics(
     baseline: RES.RunSeries,
     ecm_series: RES.RunSeries,
     placeholder_cost_usd: float,
+    factors: Optional[E.Factors] = None,
 ) -> Dict[str, Any]:
-    """Savings, cost, CO2, payback and comfort of one ECM against a baseline."""
+    """Savings, cost, CO2, payback and comfort of one ECM against a baseline.
+
+    ``factors`` carries the energy prices and emission factors used for the
+    cost and carbon columns; it defaults to the shipped PLACEHOLDER factor
+    set (``config/factors.placeholder.json``).  The metric keys are neutral
+    (``cost_saved_usd`` / ``co2_saved_tco2``); the legacy ``*_placeholder``
+    keys are only emitted when the factors really are the PLACEHOLDER set.
+    """
+    if factors is None:
+        factors = E.default_factors()
     base_fuel = fuel_kwh(baseline)
     ecm_fuel = fuel_kwh(ecm_series)
     d_elec = base_fuel["electricity"] - ecm_fuel["electricity"]
@@ -137,17 +168,17 @@ def ecm_metrics(
     saved_kwh = base_fuel["total"] - ecm_fuel["total"]
     saved_pct = 100.0 * saved_kwh / base_fuel["total"] if base_fuel["total"] else 0.0
     cost_saved = (
-        d_elec * E.ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER
-        + d_gas * E.NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER
+        d_elec * factors.electricity_price_usd_per_kwh
+        + d_gas * factors.natural_gas_price_usd_per_kwh
     )
     co2_kg = (
-        d_elec * E.ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER
-        + d_gas * E.NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER
+        d_elec * factors.electricity_co2_kg_per_kwh
+        + d_gas * factors.natural_gas_co2_kg_per_kwh
     )
     payback = placeholder_cost_usd / cost_saved if cost_saved > 0 else None
     base_comfort = comfort_metrics(baseline)
     ecm_comfort = comfort_metrics(ecm_series)
-    return {
+    metrics: Dict[str, Any] = {
         "baseline_annual_kwh": base_fuel["total"],
         "baseline_electricity_kwh": base_fuel["electricity"],
         "baseline_natural_gas_kwh": base_fuel["natural_gas"],
@@ -158,9 +189,11 @@ def ecm_metrics(
         "energy_saved_pct": saved_pct,
         "electricity_saved_kwh": d_elec,
         "natural_gas_saved_kwh": d_gas,
-        "cost_saved_usd_placeholder": cost_saved,
-        "co2_saved_tco2_placeholder": co2_kg / 1000.0,
-        "simple_payback_years_placeholder": payback,
+        "cost_saved_usd": cost_saved,
+        "co2_saved_tco2": co2_kg / 1000.0,
+        "simple_payback_years": payback,
+        "factors_source": factors.source,
+        "factors_label": factors.label,
         "comfort": {
             "baseline": base_comfort,
             "ecm": ecm_comfort,
@@ -174,6 +207,14 @@ def ecm_metrics(
             - base_comfort["zone_cooling_active_hours"],
         },
     }
+    if factors.is_placeholder:
+        # the PLACEHOLDER marker may only be carried by PLACEHOLDER numbers
+        metrics["cost_saved_usd_placeholder"] = cost_saved
+        metrics["co2_saved_tco2_placeholder"] = co2_kg / 1000.0
+    # the payback numerator is a PLACEHOLDER installed cost, so that column
+    # always keeps the marker
+    metrics["simple_payback_years_placeholder"] = payback
+    return metrics
 
 
 def ranking_from_metrics(metrics: Dict[str, Dict[str, Any]]) -> List[str]:
@@ -185,6 +226,106 @@ def ranking_from_metrics(metrics: Dict[str, Dict[str, Any]]) -> List[str]:
             key=lambda kv: (-kv[1]["energy_saved_kwh"], kv[0]),
         )
     ]
+
+
+# ---------------------------------------------------------------------------
+# the headline table
+# ---------------------------------------------------------------------------
+def headline_table_lines(
+    version: str,
+    agent_ranking: List[str],
+    truth_ranking: List[str],
+    prior_ranking: List[str],
+    model_metrics: Dict[str, Dict[str, Any]],
+    runs: Dict[str, str],
+    factors: E.Factors,
+) -> List[str]:
+    """The markdown headline table of the slice-2 ECM run.
+
+    The factor-derived columns (USD saved, tCO2 saved) carry the PLACEHOLDER
+    marker only when ``factors`` is the shipped PLACEHOLDER factor set; the
+    source path of the factor set is always recorded.
+    """
+    suffix = " (PLACEHOLDER)" if factors.is_placeholder else ""
+    lines: List[str] = []
+    lines.append("# Retrofit Copilot - slice 2 ECM headline table")
+    lines.append("")
+    lines.append(f"EnergyPlus: `{version}`")
+    lines.append("")
+    lines.append(
+        f"Factors source: `{factors.source}` "
+        f"(electricity ${factors.electricity_price_usd_per_kwh:g}/kWh, "
+        f"gas ${factors.natural_gas_price_usd_per_kwh:g}/kWh, "
+        f"electricity {factors.electricity_co2_kg_per_kwh:g} kgCO2/kWh, "
+        f"gas {factors.natural_gas_co2_kg_per_kwh:g} kgCO2/kWh; "
+        f"label: {factors.label})"
+    )
+    lines.append("")
+    if factors.is_placeholder:
+        lines.append("All costs and prices are PLACEHOLDER values (see `src/ecms.py`).")
+    else:
+        lines.append(
+            "Energy prices and emission factors come from the factors file above; "
+            "the ECM installed costs are still PLACEHOLDER values (see `src/ecms.py`)."
+        )
+    lines.append("")
+    lines.append("## Agent ranking (calibrated model), by annual facility kWh saved")
+    lines.append("")
+    lines.append("| rank | ECM | kWh saved | % saved | run id |")
+    lines.append("|---|---|---|---|---|")
+    for i, ecm_id in enumerate(agent_ranking, start=1):
+        m = model_metrics["calibrated"][ecm_id]
+        lines.append(
+            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
+            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
+        )
+    lines.append("")
+    lines.append("## Ground-truth ranking (true model), by annual facility kWh saved")
+    lines.append("")
+    lines.append("| rank | ECM | kWh saved | % saved | run id |")
+    lines.append("|---|---|---|---|---|")
+    for i, ecm_id in enumerate(truth_ranking, start=1):
+        m = model_metrics["true"][ecm_id]
+        lines.append(
+            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
+            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
+        )
+    lines.append("")
+    lines.append("## LLM-prior ranking (written before the simulations)")
+    lines.append("")
+    lines.append("| rank | ECM |")
+    lines.append("|---|---|")
+    for i, ecm_id in enumerate(prior_ranking, start=1):
+        lines.append(f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} |")
+    lines.append("")
+    lines.append("## Full per-ECM detail (agent model / true model)")
+    lines.append("")
+    lines.append(
+        f"| ECM | model | kWh saved | % saved | USD saved{suffix} | tCO2 saved{suffix} "
+        "| payback yr (PLACEHOLDER) | mean zone T [C] | d(zone T) [K] | zone-hrs outside 20-26 C | run id |"
+    )
+    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
+    for model_name in ("calibrated", "true"):
+        for ecm_id in E.ECM_IDS:
+            m = model_metrics[model_name][ecm_id]
+            payback = m["simple_payback_years"]
+            lines.append(
+                f"| {ecm_id} | {model_name} | {m['energy_saved_kwh']:.1f} | {m['energy_saved_pct']:.2f} | "
+                f"{m['cost_saved_usd']:.2f} | {m['co2_saved_tco2']:.3f} | "
+                f"{'n/a' if payback is None else f'{payback:.1f}'} | "
+                f"{m['comfort']['ecm']['zone_mean_air_temp_c']:.2f} | "
+                f"{m['comfort']['delta_zone_mean_air_temp_c']:+.2f} | "
+                f"{m['comfort']['ecm']['zone_hours_outside_comfort_band']} | `{m['run_id']}` |"
+            )
+    lines.append("")
+    lines.append("## Run audit trail")
+    lines.append("")
+    lines.append("| role | run id |")
+    lines.append("|---|---|")
+    for key, rid in runs.items():
+        lines.append(f"| {key} | `{rid}` |")
+    lines.append("")
+    return lines
 
 
 # ---------------------------------------------------------------------------
@@ -213,13 +354,41 @@ def run_one(
     return manifest
 
 
+def write_outputs(out_path: Path, lines: List[str], results: Dict[str, Any]) -> Path:
+    """Write the headline table and ``ecm_results.json``; return the JSON path."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text("\n".join(lines) + "\n")
+    results_path = out_path.with_name("ecm_results.json")
+    results_path.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
+    return results_path
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all", action="store_true", help="run the full slice-2 ECM pipeline")
     ap.add_argument("--out", type=Path, default=RUNS_DIR / "ecm_headline_table.md")
+    ap.add_argument(
+        "--factors",
+        type=Path,
+        default=None,
+        help=(
+            "JSON factors file with the four energy-price / emission factors "
+            "(electricity_price_usd_per_kwh, natural_gas_price_usd_per_kwh, "
+            "electricity_co2_kg_per_kwh, natural_gas_co2_kg_per_kwh); each value "
+            "must be a finite, non-negative number.  Default: the shipped "
+            "config/factors.placeholder.json (the PLACEHOLDER factor set)."
+        ),
+    )
     args = ap.parse_args(argv)
     if not args.all:
         ap.error("nothing to do: pass --all")
+
+    # -- the factor set (validated before any simulation) --------------------
+    try:
+        factors = E.load_factors(args.factors) if args.factors is not None else E.default_factors()
+    except (FileNotFoundError, ValueError) as exc:
+        raise SystemExit(f"invalid factors file: {exc}")
+    print(f"factors source: {factors.source} (label: {factors.label})")
 
     # -- the LLM prior control must exist BEFORE any simulation --------------
     if not PRIOR_FILE.is_file():
@@ -286,7 +455,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             change_records[f"{ecm.ecm_id}_{model_name}"] = changes
             ecm_series = RES.load_run_series(Path(manifest["cwd"]), manifest["run_id"])
             cost = ecm.cost(idf.read_text())
-            metrics[ecm.ecm_id] = ecm_metrics(base_series, ecm_series, cost["amount_usd"])
+            metrics[ecm.ecm_id] = ecm_metrics(
+                base_series, ecm_series, cost["amount_usd"], factors=factors
+            )
             metrics[ecm.ecm_id]["run_id"] = manifest["run_id"]
             metrics[ecm.ecm_id]["baseline_run_id"] = base_manifest["run_id"]
             metrics[ecm.ecm_id]["placeholder_cost_usd"] = cost["amount_usd"]
@@ -349,84 +520,32 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "agent_top3_overlap_with_truth": agreement(agent_ranking),
             "prior_beats_agent": prior_beats_agent,
         },
-        "placeholders": {
-            "electricity_price_usd_per_kwh": E.ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER,
-            "natural_gas_price_usd_per_kwh": E.NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER,
-            "electricity_co2_kg_per_kwh": E.ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER,
-            "natural_gas_co2_kg_per_kwh": E.NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER,
-            "label": E.PLACEHOLDER,
-        },
+        "factors": factors.record(),
     }
+    if factors.is_placeholder:
+        # the legacy PLACEHOLDER block: only valid for the placeholder factors
+        results["placeholders"] = {
+            "electricity_price_usd_per_kwh": factors.electricity_price_usd_per_kwh,
+            "natural_gas_price_usd_per_kwh": factors.natural_gas_price_usd_per_kwh,
+            "electricity_co2_kg_per_kwh": factors.electricity_co2_kg_per_kwh,
+            "natural_gas_co2_kg_per_kwh": factors.natural_gas_co2_kg_per_kwh,
+            "label": E.PLACEHOLDER,
+            "source": factors.source,
+        }
 
     # -- markdown headline table -------------------------------------------
-    lines: List[str] = []
-    lines.append("# Retrofit Copilot - slice 2 ECM headline table")
-    lines.append("")
-    lines.append(f"EnergyPlus: `{version}`")
-    lines.append("")
-    lines.append("All costs and prices are PLACEHOLDER values (see `src/ecms.py`).")
-    lines.append("")
-    lines.append("## Agent ranking (calibrated model), by annual facility kWh saved")
-    lines.append("")
-    lines.append("| rank | ECM | kWh saved | % saved | run id |")
-    lines.append("|---|---|---|---|---|")
-    for i, ecm_id in enumerate(agent_ranking, start=1):
-        m = model_metrics["calibrated"][ecm_id]
-        lines.append(
-            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
-            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
-        )
-    lines.append("")
-    lines.append("## Ground-truth ranking (true model), by annual facility kWh saved")
-    lines.append("")
-    lines.append("| rank | ECM | kWh saved | % saved | run id |")
-    lines.append("|---|---|---|---|---|")
-    for i, ecm_id in enumerate(truth_ranking, start=1):
-        m = model_metrics["true"][ecm_id]
-        lines.append(
-            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
-            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
-        )
-    lines.append("")
-    lines.append("## LLM-prior ranking (written before the simulations)")
-    lines.append("")
-    lines.append("| rank | ECM |")
-    lines.append("|---|---|")
-    for i, ecm_id in enumerate(prior_ranking, start=1):
-        lines.append(f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} |")
-    lines.append("")
-    lines.append("## Full per-ECM detail (agent model / true model)")
-    lines.append("")
-    lines.append(
-        "| ECM | model | kWh saved | % saved | USD saved (PLACEHOLDER) | tCO2 saved (PLACEHOLDER) "
-        "| payback yr (PLACEHOLDER) | mean zone T [C] | d(zone T) [K] | zone-hrs outside 20-26 C | run id |"
+    lines: List[str] = headline_table_lines(
+        version=version,
+        agent_ranking=agent_ranking,
+        truth_ranking=truth_ranking,
+        prior_ranking=prior_ranking,
+        model_metrics=model_metrics,
+        runs=runs,
+        factors=factors,
     )
-    lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
-    for model_name in ("calibrated", "true"):
-        for ecm_id in E.ECM_IDS:
-            m = model_metrics[model_name][ecm_id]
-            payback = m["simple_payback_years_placeholder"]
-            lines.append(
-                f"| {ecm_id} | {model_name} | {m['energy_saved_kwh']:.1f} | {m['energy_saved_pct']:.2f} | "
-                f"{m['cost_saved_usd_placeholder']:.2f} | {m['co2_saved_tco2_placeholder']:.3f} | "
-                f"{'n/a' if payback is None else f'{payback:.1f}'} | "
-                f"{m['comfort']['ecm']['zone_mean_air_temp_c']:.2f} | "
-                f"{m['comfort']['delta_zone_mean_air_temp_c']:+.2f} | "
-                f"{m['comfort']['ecm']['zone_hours_outside_comfort_band']} | `{m['run_id']}` |"
-            )
-    lines.append("")
-    lines.append("## Run audit trail")
-    lines.append("")
-    lines.append("| role | run id |")
-    lines.append("|---|---|")
-    for key, rid in runs.items():
-        lines.append(f"| {key} | `{rid}` |")
-    lines.append("")
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_text("\n".join(lines) + "\n")
-    results_path = args.out.with_name("ecm_results.json")
-    results_path.write_text(json.dumps(results, indent=2, sort_keys=True) + "\n")
+    results_path = write_outputs(args.out, lines, results)
 
     print()
     print("\n".join(lines))
