@@ -1,0 +1,55 @@
+{
+  "command": [
+    "energyplus",
+    "-w",
+    "weather/USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw",
+    "-d",
+    "runs/ecmE4-true-20261106T111620Z-c3be43",
+    "-p",
+    "eplus",
+    "-s",
+    "C",
+    "-r",
+    "runs/ecmE4-true-20261106T111620Z-c3be43/in.idf"
+  ],
+  "created_utc": "2026-11-06T11:16:20Z",
+  "cwd": "runs/ecmE4-true-20261106T111620Z-c3be43",
+  "duration_s": 34.4,
+  "energyplus": {
+    "binary": "energyplus",
+    "version": "EnergyPlus, Version 26.2.0"
+  },
+  "inputs": {
+    "idf_simulated": {
+      "patched": true,
+      "path": "runs/ecmE4-true-20261106T111620Z-c3be43/in.idf",
+      "sha256": "not-recorded-in-fixture"
+    },
+    "idf_source": {
+      "path": "examplefiles/5ZoneAirCooled.idf",
+      "sha256": "not-recorded-in-fixture"
+    },
+    "weather": {
+      "path": "weather/USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw",
+      "sha256": "not-recorded-in-fixture"
+    }
+  },
+  "label": "ecmE4-true",
+  "notes": "slice-2 ECM E4 (Heating electrification (fuel switch)) on the true model; {\"cooling_setpoint_offset_k\": 1.0, \"ecm\": \"E4\", \"envelope_conductivity_scale\": 1.3, \"infiltration_flow_scale\": 2.0}",
+  "outputs": {
+    "eplus.csv": {
+      "bytes": null,
+      "sha256": "not-recorded-in-fixture"
+    }
+  },
+  "params": {
+    "cooling_setpoint_offset_k": 1.0,
+    "ecm": "E4",
+    "envelope_conductivity_scale": 1.3,
+    "infiltration_flow_scale": 2.0
+  },
+  "pruned_outputs": [],
+  "returncode": 0,
+  "run_id": "ecmE4-true-20261106T111620Z-c3be43",
+  "schema_version": 1
+}

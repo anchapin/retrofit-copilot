@@ -1,0 +1,55 @@
+{
+  "command": [
+    "energyplus",
+    "-w",
+    "weather/USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw",
+    "-d",
+    "runs/ecmE4-calibrated-20261106T111026Z-6e6d8e",
+    "-p",
+    "eplus",
+    "-s",
+    "C",
+    "-r",
+    "runs/ecmE4-calibrated-20261106T111026Z-6e6d8e/in.idf"
+  ],
+  "created_utc": "2026-11-06T11:10:26Z",
+  "cwd": "runs/ecmE4-calibrated-20261106T111026Z-6e6d8e",
+  "duration_s": 34.9,
+  "energyplus": {
+    "binary": "energyplus",
+    "version": "EnergyPlus, Version 26.2.0"
+  },
+  "inputs": {
+    "idf_simulated": {
+      "patched": true,
+      "path": "runs/ecmE4-calibrated-20261106T111026Z-6e6d8e/in.idf",
+      "sha256": "not-recorded-in-fixture"
+    },
+    "idf_source": {
+      "path": "examplefiles/5ZoneAirCooled.idf",
+      "sha256": "not-recorded-in-fixture"
+    },
+    "weather": {
+      "path": "weather/USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw",
+      "sha256": "not-recorded-in-fixture"
+    }
+  },
+  "label": "ecmE4-calibrated",
+  "notes": "slice-2 ECM E4 (Heating electrification (fuel switch)) on the calibrated model; {\"cooling_setpoint_offset_k\": 1.0, \"ecm\": \"E4\", \"envelope_conductivity_scale\": 1.2, \"infiltration_flow_scale\": 2.2}",
+  "outputs": {
+    "eplus.csv": {
+      "bytes": null,
+      "sha256": "not-recorded-in-fixture"
+    }
+  },
+  "params": {
+    "cooling_setpoint_offset_k": 1.0,
+    "ecm": "E4",
+    "envelope_conductivity_scale": 1.2,
+    "infiltration_flow_scale": 2.2
+  },
+  "pruned_outputs": [],
+  "returncode": 0,
+  "run_id": "ecmE4-calibrated-20261106T111026Z-6e6d8e",
+  "schema_version": 1
+}

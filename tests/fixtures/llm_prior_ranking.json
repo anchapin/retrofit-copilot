@@ -1,0 +1,26 @@
+{
+  "written_utc": "2026-11-06T11:04:11Z",
+  "note": "LLM-prior control written before any ECM simulation; trimmed fixture copy of the recorded runs/llm_prior_ranking.json.",
+  "ranking": [
+    {
+      "ecm_id": "E3",
+      "reason": "Chiller COP 3.2 -> 4.5 cuts the largest end use (chiller electricity) by roughly a quarter, and the boiler gain is on top; plant-efficiency ECMs are normally the biggest kWh winners on an all-electric-cooling VAV building."
+    },
+    {
+      "ecm_id": "E1",
+      "reason": "50 mm of insulation on 738 m2 of roof and exterior walls reduces both the heating and the cooling load of every zone, so it should be the second-largest kWh effect even though the envelope is leaky to begin with."
+    },
+    {
+      "ecm_id": "E5",
+      "reason": "Widening the thermostat deadband by 2 K typically returns a high-single-digit percentage of HVAC energy on an office with wide operating hours; smaller than a plant or envelope change but not negligible."
+    },
+    {
+      "ecm_id": "E4",
+      "reason": "Gas boiler at 80% -> electric resistance at 100% removes ~20% of the heating fuel input, but heating is only a minority of this building's annual load, so the kWh effect should be modest."
+    },
+    {
+      "ecm_id": "E2",
+      "reason": "Only 61 m2 of glazing on a 738 m2 envelope, so even a good low-e window changes little of the total load; the smallest kWh effect of the five."
+    }
+  ]
+}

@@ -1,0 +1,309 @@
+{
+  "generated_utc": "2026-11-06T11:46:00Z",
+  "energyplus_version": "EnergyPlus, Version 26.2.0",
+  "note": "Trimmed fixture copy of the recorded runs/ecm_results.json (slice-2 ECM runs, 2026-11-06). Run ids and headline values are the ones in REPORT.md 'Run audit trail' and the slice-2 tables.",
+  "llm_prior": {
+    "file": "llm_prior_ranking.json",
+    "file_mtime_utc": "2026-11-06T11:04:11Z",
+    "ranking": [
+      "E3",
+      "E1",
+      "E5",
+      "E4",
+      "E2"
+    ],
+    "sha256": "1b50e0c1c4be6af278ba245ef4c5234ac523b61a24c5004a0b45e74e042178db"
+  },
+  "runs": {
+    "baseline_calibrated": "ecmbase-calibrated-20261106T110730Z-950f94",
+    "baseline_true": "ecmbase-true-20261106T111204Z-398cbb",
+    "E1_calibrated": "ecmE1-calibrated-20261106T110817Z-479c57",
+    "E1_true": "ecmE1-true-20261106T111248Z-e7d88d",
+    "E2_calibrated": "ecmE2-calibrated-20261106T110859Z-45ced3",
+    "E2_true": "ecmE2-true-20261106T111334Z-b37312",
+    "E3_calibrated": "ecmE3-calibrated-20261106T110942Z-047afe",
+    "E3_true": "ecmE3-true-20261106T111428Z-577217",
+    "E4_calibrated": "ecmE4-calibrated-20261106T111026Z-6e6d8e",
+    "E4_true": "ecmE4-true-20261106T111620Z-c3be43",
+    "E5_calibrated": "ecmE5-calibrated-20261106T111115Z-fc7474",
+    "E5_true": "ecmE5-true-20261106T114528Z-59bfd8"
+  },
+  "metrics": {
+    "calibrated": {
+      "E1": {
+        "baseline_run_id": "ecmbase-calibrated-20261106T110730Z-950f94",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.11,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 12169,
+            "zone_mean_air_temp_c": 21.54
+          }
+        },
+        "co2_saved_tco2": 1.023,
+        "co2_saved_tco2_placeholder": 1.023,
+        "cost_basis": "738.0 m2 outdoor-facing opaque envelope x PLACEHOLDER RSMeans-style unit rate 60 USD/m2 (added insulation material + labour)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 346.54,
+        "cost_saved_usd_placeholder": 346.54,
+        "energy_saved_kwh": 4790.3,
+        "energy_saved_pct": 7.58,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE1-calibrated-20261106T110817Z-479c57",
+        "simple_payback_years": 127.7,
+        "simple_payback_years_placeholder": 127.7
+      },
+      "E2": {
+        "baseline_run_id": "ecmbase-calibrated-20261106T110730Z-950f94",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.05,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 12184,
+            "zone_mean_air_temp_c": 21.48
+          }
+        },
+        "co2_saved_tco2": 1.377,
+        "co2_saved_tco2_placeholder": 1.377,
+        "cost_basis": "61.0 m2 glazed area x PLACEHOLDER RSMeans-style unit rate 450 USD/m2 (low-e glazing + labour)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 467.16,
+        "cost_saved_usd_placeholder": 467.16,
+        "energy_saved_kwh": 6357.0,
+        "energy_saved_pct": 10.06,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE2-calibrated-20261106T110859Z-45ced3",
+        "simple_payback_years": 58.7,
+        "simple_payback_years_placeholder": 58.7
+      },
+      "E3": {
+        "baseline_run_id": "ecmbase-calibrated-20261106T110730Z-950f94",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.0,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13475,
+            "zone_mean_air_temp_c": 21.43
+          }
+        },
+        "co2_saved_tco2": 0.882,
+        "co2_saved_tco2_placeholder": 0.882,
+        "cost_basis": "PLACEHOLDER lump sum (chiller + boiler equipment replacement, installed) for the single central plant of the example building",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 300.99,
+        "cost_saved_usd_placeholder": 300.99,
+        "energy_saved_kwh": 3819.2,
+        "energy_saved_pct": 6.04,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE3-calibrated-20261106T110942Z-047afe",
+        "simple_payback_years": 149.5,
+        "simple_payback_years_placeholder": 149.5
+      },
+      "E4": {
+        "baseline_run_id": "ecmbase-calibrated-20261106T110730Z-950f94",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.0,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13475,
+            "zone_mean_air_temp_c": 21.43
+          }
+        },
+        "co2_saved_tco2": -2.484,
+        "co2_saved_tco2_placeholder": -2.484,
+        "cost_basis": "PLACEHOLDER lump sum (electric resistance boiler equipment + install + nominal service upgrade) for the central heating plant",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": -942.15,
+        "cost_saved_usd_placeholder": -942.15,
+        "energy_saved_kwh": 4282.5,
+        "energy_saved_pct": 6.77,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE4-calibrated-20261106T111026Z-6e6d8e",
+        "simple_payback_years": null,
+        "simple_payback_years_placeholder": null
+      },
+      "E5": {
+        "baseline_run_id": "ecmbase-calibrated-20261106T110730Z-950f94",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": -0.05,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13631,
+            "zone_mean_air_temp_c": 21.38
+          }
+        },
+        "co2_saved_tco2": 0.79,
+        "co2_saved_tco2_placeholder": 0.79,
+        "cost_basis": "PLACEHOLDER lump sum (thermostat replacement / reprogramming of the five zone thermostats of the example building)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 267.18,
+        "cost_saved_usd_placeholder": 267.18,
+        "energy_saved_kwh": 3751.1,
+        "energy_saved_pct": 5.93,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE5-calibrated-20261106T111115Z-fc7474",
+        "simple_payback_years": 9.4,
+        "simple_payback_years_placeholder": 9.4
+      }
+    },
+    "true": {
+      "E1": {
+        "baseline_run_id": "ecmbase-true-20261106T111204Z-398cbb",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.12,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 12163,
+            "zone_mean_air_temp_c": 21.54
+          }
+        },
+        "co2_saved_tco2": 1.101,
+        "co2_saved_tco2_placeholder": 1.101,
+        "cost_basis": "738.0 m2 outdoor-facing opaque envelope x PLACEHOLDER RSMeans-style unit rate 60 USD/m2 (added insulation material + labour)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 373.08,
+        "cost_saved_usd_placeholder": 373.08,
+        "energy_saved_kwh": 5164.6,
+        "energy_saved_pct": 8.18,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE1-true-20261106T111248Z-e7d88d",
+        "simple_payback_years": 118.7,
+        "simple_payback_years_placeholder": 118.7
+      },
+      "E2": {
+        "baseline_run_id": "ecmbase-true-20261106T111204Z-398cbb",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.05,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 12332,
+            "zone_mean_air_temp_c": 21.47
+          }
+        },
+        "co2_saved_tco2": 1.336,
+        "co2_saved_tco2_placeholder": 1.336,
+        "cost_basis": "61.0 m2 glazed area x PLACEHOLDER RSMeans-style unit rate 450 USD/m2 (low-e glazing + labour)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 453.15,
+        "cost_saved_usd_placeholder": 453.15,
+        "energy_saved_kwh": 6172.0,
+        "energy_saved_pct": 9.78,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE2-true-20261106T111334Z-b37312",
+        "simple_payback_years": 60.5,
+        "simple_payback_years_placeholder": 60.5
+      },
+      "E3": {
+        "baseline_run_id": "ecmbase-true-20261106T111204Z-398cbb",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.0,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13582,
+            "zone_mean_air_temp_c": 21.42
+          }
+        },
+        "co2_saved_tco2": 0.878,
+        "co2_saved_tco2_placeholder": 0.878,
+        "cost_basis": "PLACEHOLDER lump sum (chiller + boiler equipment replacement, installed) for the single central plant of the example building",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 299.57,
+        "cost_saved_usd_placeholder": 299.57,
+        "energy_saved_kwh": 3802.9,
+        "energy_saved_pct": 6.03,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE3-true-20261106T111428Z-577217",
+        "simple_payback_years": 150.2,
+        "simple_payback_years_placeholder": 150.2
+      },
+      "E4": {
+        "baseline_run_id": "ecmbase-true-20261106T111204Z-398cbb",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": 0.0,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13582,
+            "zone_mean_air_temp_c": 21.42
+          }
+        },
+        "co2_saved_tco2": -2.475,
+        "co2_saved_tco2_placeholder": -2.475,
+        "cost_basis": "PLACEHOLDER lump sum (electric resistance boiler equipment + install + nominal service upgrade) for the central heating plant",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": -938.77,
+        "cost_saved_usd_placeholder": -938.77,
+        "energy_saved_kwh": 4267.1,
+        "energy_saved_pct": 6.76,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE4-true-20261106T111620Z-c3be43",
+        "simple_payback_years": null,
+        "simple_payback_years_placeholder": null
+      },
+      "E5": {
+        "baseline_run_id": "ecmbase-true-20261106T111204Z-398cbb",
+        "comfort": {
+          "delta_zone_mean_air_temp_c": -0.05,
+          "ecm": {
+            "zone_hours_outside_comfort_band": 13725,
+            "zone_mean_air_temp_c": 21.37
+          }
+        },
+        "co2_saved_tco2": 0.794,
+        "co2_saved_tco2_placeholder": 0.794,
+        "cost_basis": "PLACEHOLDER lump sum (thermostat replacement / reprogramming of the five zone thermostats of the example building)",
+        "cost_label": "PLACEHOLDER",
+        "cost_saved_usd": 268.66,
+        "cost_saved_usd_placeholder": 268.66,
+        "energy_saved_kwh": 3776.3,
+        "energy_saved_pct": 5.98,
+        "factors_label": "PLACEHOLDER",
+        "factors_source": "config/factors.placeholder.json",
+        "run_id": "ecmE5-true-20261106T114528Z-59bfd8",
+        "simple_payback_years": 9.3,
+        "simple_payback_years_placeholder": 9.3
+      }
+    }
+  },
+  "rankings": {
+    "agent_calibrated": [
+      "E2",
+      "E1",
+      "E4",
+      "E3",
+      "E5"
+    ],
+    "ground_truth_true": [
+      "E2",
+      "E1",
+      "E4",
+      "E3",
+      "E5"
+    ],
+    "llm_prior": [
+      "E3",
+      "E1",
+      "E5",
+      "E4",
+      "E2"
+    ]
+  },
+  "comparison": {
+    "agent_top3": [
+      "E2",
+      "E1",
+      "E4"
+    ],
+    "agent_top3_matches_truth_in_order": true,
+    "ground_truth_top3": [
+      "E2",
+      "E1",
+      "E4"
+    ],
+    "prior_top3": [
+      "E3",
+      "E1",
+      "E5"
+    ],
+    "prior_top3_matches_truth_in_order": false
+  }
+}
