@@ -1,5 +1,16 @@
 """The five pre-defined energy conservation measures (ECMs) of the POC.
 
+Energy prices and emission factors
+----------------------------------
+The four energy-price / emission factors (electricity and natural-gas price
+in USD/kWh, electricity and natural-gas emission factor in kgCO2/kWh) are
+**not** hard-coded here: they are loaded from a JSON *factors file* (see
+:func:`load_factors`).  The shipped default is
+``config/factors.placeholder.json``, which carries the PLACEHOLDER values
+used throughout the report.  A run may point at any other factors file
+(``src/run_ecms.py --factors <path.json>``); the source path is recorded in
+the outputs so a reader can always tell which factor set produced a number.
+
 Each ECM is a *deterministic* transformation of an IDF text.  The shipped
 EnergyPlus example file is never edited in place: an ECM parses the IDF,
 changes named objects on the parsed copy, and returns
@@ -31,9 +42,11 @@ it.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import idf_params as P
@@ -62,13 +75,122 @@ E4_ELECTRIFICATION_COST_USD_PLACEHOLDER = 25_000.0
 #: PLACEHOLDER lump sum for thermostat reprogramming / replacement.
 E5_CONTROLS_COST_USD_PLACEHOLDER = 2_500.0
 
+# ---------------------------------------------------------------------------
+# energy prices / emission factors (loaded from a JSON factors file)
+# ---------------------------------------------------------------------------
+#: The keys of the factors-file schema (see ``config/factors.placeholder.json``).
+FACTOR_KEYS: Tuple[str, ...] = (
+    "electricity_price_usd_per_kwh",
+    "natural_gas_price_usd_per_kwh",
+    "electricity_co2_kg_per_kwh",
+    "natural_gas_co2_kg_per_kwh",
+)
+
+#: The shipped default factors file (the PLACEHOLDER factor set).
+PLACEHOLDER_FACTORS_PATH: Path = Path(__file__).resolve().parents[1] / "config" / "factors.placeholder.json"
+
+
+def _read_factors_file(path: Path) -> Dict[str, float]:
+    """Read and validate a factors JSON file.
+
+    The file must be a JSON object holding exactly the four keys of
+    :data:`FACTOR_KEYS`, each a finite, non-negative number.  Anything else
+    raises a :class:`ValueError` (or :class:`FileNotFoundError`) with a
+    message that names the offending file and key.
+    """
+    try:
+        raw = path.read_text()
+    except OSError as exc:
+        raise FileNotFoundError(f"cannot read the factors file {path}: {exc}") from exc
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"the factors file {path} is not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(
+            f"the factors file {path} must contain a JSON object with the keys "
+            f"{', '.join(FACTOR_KEYS)}; got {type(data).__name__}"
+        )
+    missing = [key for key in FACTOR_KEYS if key not in data]
+    if missing:
+        raise ValueError(
+            f"the factors file {path} is missing the required key(s): "
+            f"{', '.join(missing)} (expected keys: {', '.join(FACTOR_KEYS)})"
+        )
+    unknown = sorted(key for key in data if key not in FACTOR_KEYS)
+    if unknown:
+        raise ValueError(
+            f"the factors file {path} has unknown key(s): {', '.join(unknown)} "
+            f"(expected keys: {', '.join(FACTOR_KEYS)})"
+        )
+    values: Dict[str, float] = {}
+    for key in FACTOR_KEYS:
+        value = data[key]
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"factor '{key}' in {path} must be a number, got {value!r}")
+        value = float(value)
+        if not math.isfinite(value) or value < 0.0:
+            raise ValueError(
+                f"factor '{key}' in {path} must be a finite, non-negative number, got {value!r}"
+            )
+        values[key] = value
+    return values
+
+
+@dataclass(frozen=True)
+class Factors:
+    """One set of energy prices and emission factors.
+
+    ``source`` is the path of the factors file the values came from (``None``
+    for the in-code placeholder defaults) and ``is_placeholder`` says whether
+    the values are the shipped PLACEHOLDER set - only then may the outputs
+    carry the PLACEHOLDER marker.
+    """
+
+    electricity_price_usd_per_kwh: float
+    natural_gas_price_usd_per_kwh: float
+    electricity_co2_kg_per_kwh: float
+    natural_gas_co2_kg_per_kwh: float
+    source: Optional[str] = None
+    is_placeholder: bool = True
+
+    @property
+    def label(self) -> str:
+        """The label of the factor set: PLACEHOLDER or CUSTOM."""
+        return PLACEHOLDER if self.is_placeholder else "CUSTOM"
+
+    def to_dict(self) -> Dict[str, float]:
+        """The four factor values, keyed as in the factors file."""
+        return {key: float(getattr(self, key)) for key in FACTOR_KEYS}
+
+    def record(self) -> Dict[str, Any]:
+        """The factors block recorded in ``ecm_results.json``."""
+        out: Dict[str, Any] = self.to_dict()
+        out["source"] = self.source
+        out["label"] = self.label
+        out["is_placeholder"] = bool(self.is_placeholder)
+        return out
+
+
+#: The PLACEHOLDER factor values, read from the shipped default factors file.
+#: (They are *not* hard-coded in this module: the JSON file is the source.)
+_PLACEHOLDER_FACTOR_VALUES: Dict[str, float] = _read_factors_file(PLACEHOLDER_FACTORS_PATH)
+
 #: PLACEHOLDER energy prices used for the cost ranking (NOT tariffs).
-ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER = 0.13
-NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER = 0.06
+ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER = _PLACEHOLDER_FACTOR_VALUES["electricity_price_usd_per_kwh"]
+NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER = _PLACEHOLDER_FACTOR_VALUES["natural_gas_price_usd_per_kwh"]
 
 #: PLACEHOLDER grid emission factors (NOT measured factors).
-ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER = 0.37
-NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER = 0.18
+ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER = _PLACEHOLDER_FACTOR_VALUES["electricity_co2_kg_per_kwh"]
+NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER = _PLACEHOLDER_FACTOR_VALUES["natural_gas_co2_kg_per_kwh"]
+
+#: The PLACEHOLDER factor values, keyed as in the factors file.
+PLACEHOLDER_FACTOR_VALUES: Dict[str, float] = {
+    "electricity_price_usd_per_kwh": ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER,
+    "natural_gas_price_usd_per_kwh": NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER,
+    "electricity_co2_kg_per_kwh": ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER,
+    "natural_gas_co2_kg_per_kwh": NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER,
+}
 
 COST_CONSTANTS: Dict[str, float] = {
     "E1_INSULATION_UNIT_COST_USD_PER_M2_PLACEHOLDER": E1_INSULATION_UNIT_COST_USD_PER_M2_PLACEHOLDER,
@@ -88,6 +210,38 @@ def check_placeholder_labels() -> None:
     missing = sorted(name for name in COST_CONSTANTS if PLACEHOLDER not in name)
     if missing:
         raise ValueError(f"cost constants without the PLACEHOLDER marker: {missing}")
+
+
+def default_factors() -> Factors:
+    """The shipped default factor set (the PLACEHOLDER factors file)."""
+    return Factors(
+        electricity_price_usd_per_kwh=ELECTRICITY_PRICE_USD_PER_KWH_PLACEHOLDER,
+        natural_gas_price_usd_per_kwh=NATURAL_GAS_PRICE_USD_PER_KWH_PLACEHOLDER,
+        electricity_co2_kg_per_kwh=ELECTRICITY_CO2_KG_PER_KWH_PLACEHOLDER,
+        natural_gas_co2_kg_per_kwh=NATURAL_GAS_CO2_KG_PER_KWH_PLACEHOLDER,
+        source=str(PLACEHOLDER_FACTORS_PATH),
+        is_placeholder=True,
+    )
+
+
+def load_factors(path: Any) -> Factors:
+    """Load a factors file and return the :class:`Factors` it describes.
+
+    ``path`` is the path of the JSON factors file (see
+    :data:`FACTOR_KEYS` for the schema).  A file whose values equal the
+    shipped PLACEHOLDER set keeps the PLACEHOLDER label; any other factor
+    set is labelled ``CUSTOM`` and its source path is recorded.
+    """
+    path = Path(path)
+    values = _read_factors_file(path)
+    return Factors(
+        electricity_price_usd_per_kwh=values["electricity_price_usd_per_kwh"],
+        natural_gas_price_usd_per_kwh=values["natural_gas_price_usd_per_kwh"],
+        electricity_co2_kg_per_kwh=values["electricity_co2_kg_per_kwh"],
+        natural_gas_co2_kg_per_kwh=values["natural_gas_co2_kg_per_kwh"],
+        source=str(path),
+        is_placeholder=values == PLACEHOLDER_FACTOR_VALUES,
+    )
 
 
 def _fmt(value: float) -> str:
