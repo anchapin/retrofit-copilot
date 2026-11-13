@@ -24,6 +24,14 @@ The source path of the factor set is recorded in the headline table and in
 ``ecm_results.json``; the factor-derived columns only carry the PLACEHOLDER
 marker when the shipped placeholder factor set is used.
 
+The headline ranking is by annual facility kWh saved by default; another
+metric can be chosen with ``--rank-by {kwh,cost,carbon}`` (annual USD
+saved or annual tCO2 saved - both already computed by the pipeline).  The
+chosen metric is named in the ranking headings and ECMs with negative
+savings sort last:
+
+    python src/run_ecms.py --all --rank-by cost
+
 Twelve EnergyPlus runs are recorded (2 model baselines + 5 ECMs x 2 models);
 every run gets a run id, a run directory and a manifest under
 ``runs/``.  The LLM-prior control
@@ -217,13 +225,64 @@ def ecm_metrics(
     return metrics
 
 
-def ranking_from_metrics(metrics: Dict[str, Dict[str, Any]]) -> List[str]:
-    """Rank ECM ids by annual facility kWh saved (descending)."""
+#: The metrics the headline table can be ranked by.  Each entry maps the
+#: CLI name to the per-ECM metric key, the heading phrase and the number
+#: format used for the ranking column.
+RANK_METRICS: Dict[str, Dict[str, str]] = {
+    "kwh": {
+        "key": "energy_saved_kwh",
+        "heading": "annual facility kWh saved",
+        "column": "kWh saved",
+        "format": "{:.1f}",
+    },
+    "cost": {
+        "key": "cost_saved_usd",
+        "heading": "annual USD saved",
+        "column": "USD saved",
+        "format": "{:.2f}",
+    },
+    "carbon": {
+        "key": "co2_saved_tco2",
+        "heading": "annual tCO2 saved",
+        "column": "tCO2 saved",
+        "format": "{:.3f}",
+    },
+}
+
+#: The accepted values of ``--rank-by``.
+RANK_BY_CHOICES: Tuple[str, ...] = tuple(RANK_METRICS)
+
+
+def rank_metric(rank_by: str = "kwh") -> Dict[str, str]:
+    """The metric description of a ``--rank-by`` choice."""
+    try:
+        return RANK_METRICS[rank_by]
+    except KeyError:
+        raise ValueError(
+            f"unknown ranking metric {rank_by!r}; "
+            f"expected one of {', '.join(RANK_BY_CHOICES)}"
+        ) from None
+
+
+def ranking_from_metrics(
+    metrics: Dict[str, Dict[str, Any]],
+    rank_by: str = "kwh",
+) -> List[str]:
+    """Rank ECM ids by the chosen metric (descending).
+
+    The default metric is the annual facility kWh saved (the historic
+    behaviour).  ``rank_by="cost"`` ranks by the annual USD saved and
+    ``rank_by="carbon"`` by the annual tCO2 saved, both of which the
+    pipeline already computes.  Savings are sorted descending, so ECMs that
+    *cost* money (negative savings) sort last; ties are broken by ECM id.
+    """
+    metric = rank_metric(rank_by)
+    key = metric["key"]
     return [
         ecm_id
         for ecm_id, _m in sorted(
             metrics.items(),
-            key=lambda kv: (-kv[1]["energy_saved_kwh"], kv[0]),
+            key=lambda kv: (-float(kv[1][key]), kv[0]),
         )
     ]
 
@@ -239,14 +298,28 @@ def headline_table_lines(
     model_metrics: Dict[str, Dict[str, Any]],
     runs: Dict[str, str],
     factors: E.Factors,
+    rank_by: str = "kwh",
 ) -> List[str]:
     """The markdown headline table of the slice-2 ECM run.
 
     The factor-derived columns (USD saved, tCO2 saved) carry the PLACEHOLDER
     marker only when ``factors`` is the shipped PLACEHOLDER factor set; the
     source path of the factor set is always recorded.
+
+    ``rank_by`` selects the metric the two ranking tables are sorted by
+    (``kwh`` - the default and the historic behaviour - ``cost`` or
+    ``carbon``); the metric is named in the table headings and ECMs with
+    negative savings sort last.
     """
     suffix = " (PLACEHOLDER)" if factors.is_placeholder else ""
+    metric = rank_metric(rank_by)
+    metric_key = metric["key"]
+    metric_format = metric["format"]
+    # the ranked metric gets its own column (the kWh ranking table keeps the
+    # historic columns only, so the default output stays byte-identical)
+    extra_column: Optional[str] = None
+    if rank_by != "kwh":
+        extra_column = f"{metric['column']}{suffix}"
     lines: List[str] = []
     lines.append("# Retrofit Copilot - slice 2 ECM headline table")
     lines.append("")
@@ -269,28 +342,40 @@ def headline_table_lines(
             "the ECM installed costs are still PLACEHOLDER values (see `src/ecms.py`)."
         )
     lines.append("")
-    lines.append("## Agent ranking (calibrated model), by annual facility kWh saved")
-    lines.append("")
-    lines.append("| rank | ECM | kWh saved | % saved | run id |")
-    lines.append("|---|---|---|---|---|")
-    for i, ecm_id in enumerate(agent_ranking, start=1):
-        m = model_metrics["calibrated"][ecm_id]
-        lines.append(
-            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
-            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
-        )
-    lines.append("")
-    lines.append("## Ground-truth ranking (true model), by annual facility kWh saved")
-    lines.append("")
-    lines.append("| rank | ECM | kWh saved | % saved | run id |")
-    lines.append("|---|---|---|---|---|")
-    for i, ecm_id in enumerate(truth_ranking, start=1):
-        m = model_metrics["true"][ecm_id]
-        lines.append(
-            f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
-            f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
-        )
-    lines.append("")
+
+    def ranking_section(title: str, ranking: List[str], model_name: str) -> List[str]:
+        """The markdown of one ranking table, sorted by the chosen metric."""
+        out: List[str] = []
+        out.append(f"## {title}, by {metric['heading']}")
+        out.append("")
+        if extra_column is None:
+            out.append("| rank | ECM | kWh saved | % saved | run id |")
+            out.append("|---|---|---|---|---|")
+        else:
+            out.append(f"| rank | ECM | {extra_column} | kWh saved | % saved | run id |")
+            out.append("|---|---|---|---|---|---|")
+        for i, ecm_id in enumerate(ranking, start=1):
+            m = model_metrics[model_name][ecm_id]
+            value = metric_format.format(m[metric_key])
+            if extra_column is None:
+                out.append(
+                    f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {m['energy_saved_kwh']:.1f} | "
+                    f"{m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
+                )
+            else:
+                out.append(
+                    f"| {i} | {ecm_id} {E.get_ecm(ecm_id).name} | {value} | "
+                    f"{m['energy_saved_kwh']:.1f} | {m['energy_saved_pct']:.2f} | `{m['run_id']}` |"
+                )
+        out.append("")
+        return out
+
+    lines.extend(
+        ranking_section("Agent ranking (calibrated model)", agent_ranking, "calibrated")
+    )
+    lines.extend(
+        ranking_section("Ground-truth ranking (true model)", truth_ranking, "true")
+    )
     lines.append("## LLM-prior ranking (written before the simulations)")
     lines.append("")
     lines.append("| rank | ECM |")
@@ -367,6 +452,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all", action="store_true", help="run the full slice-2 ECM pipeline")
     ap.add_argument("--out", type=Path, default=RUNS_DIR / "ecm_headline_table.md")
+    ap.add_argument(
+        "--rank-by",
+        choices=list(RANK_BY_CHOICES),
+        default="kwh",
+        help=(
+            "metric the headline table is ranked by: 'kwh' (annual facility "
+            "kWh saved, the default), 'cost' (annual USD saved) or 'carbon' "
+            "(annual tCO2 saved)"
+        ),
+    )
     ap.add_argument(
         "--factors",
         type=Path,
@@ -471,8 +566,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             )
         model_metrics[model_name] = metrics
 
-    agent_ranking = ranking_from_metrics(model_metrics["calibrated"])
-    truth_ranking = ranking_from_metrics(model_metrics["true"])
+    agent_ranking = ranking_from_metrics(model_metrics["calibrated"], rank_by=args.rank_by)
+    truth_ranking = ranking_from_metrics(model_metrics["true"], rank_by=args.rank_by)
 
     def top3(order: List[str]) -> List[str]:
         return order[:3]
@@ -505,6 +600,9 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "runs": runs,
         "change_records": change_records,
         "metrics": model_metrics,
+        # the default ranking metric is not recorded, so that the default
+        # results file stays byte-identical to the recorded slice-2 one
+        **({} if args.rank_by == "kwh" else {"rank_by": args.rank_by}),
         "rankings": {
             "agent_calibrated": agent_ranking,
             "ground_truth_true": truth_ranking,
@@ -542,6 +640,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         model_metrics=model_metrics,
         runs=runs,
         factors=factors,
+        rank_by=args.rank_by,
     )
 
     args.out.parent.mkdir(parents=True, exist_ok=True)
