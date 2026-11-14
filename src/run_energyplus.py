@@ -57,7 +57,7 @@ def find_energyplus(explicit: Optional[str] = None) -> Path:
             return cand.resolve()
     raise FileNotFoundError(
         "EnergyPlus executable not found. Install it with "
-        "`bash scripts/install_energyplus.sh` (or set "
+        "`bash scripts/fetch_energyplus.sh` (or set "
         "$ENERGYPLUS_BIN). Searched: "
         + ", ".join(str(c) for c in candidates)
     )

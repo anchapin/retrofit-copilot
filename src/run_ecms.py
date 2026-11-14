@@ -64,6 +64,24 @@ IDF_NAME = "5ZoneAirCooled.idf"
 EPW_NAME = "USA_IL_Chicago-OHare.Intl.AP.725300_TMY3.epw"
 PRIOR_FILE = RUNS_DIR / "llm_prior_ranking.json"
 
+#: The canonical file names used in the pre-flight error messages (the
+#: messages always name the file, even when a caller points the runner at a
+#: file under a different name).
+PRIOR_FILE_NAME = "runs/llm_prior_ranking.json"
+RESULTS_FILE_NAME = "results.json"
+RESULTS_FILE_LABEL = "runs/results.json"
+
+
+class PreflightError(SystemExit, ValueError):
+    """A pre-flight input problem, reported as a clean one-line exit.
+
+    It derives from :class:`SystemExit` so the command line scripts stop with
+    the message and no traceback, and from :class:`ValueError` so library
+    callers that use the validation helpers directly still see an ordinary
+    exception.
+    """
+
+
 #: The calibrated (agent) model parameters recovered by slice 1.  They are
 #: re-derived from ``runs/results.json`` when that file exists (the slice-1
 #: pipeline writes it); the constant below is the recorded slice-1 result.
@@ -93,15 +111,113 @@ def find_install_dir(binary: Path) -> Path:
     raise FileNotFoundError(f"no ExampleFiles/ next to the EnergyPlus binary at {binary}")
 
 
-def load_calibrated_params() -> Dict[str, float]:
-    """Use the slice-1 results file when present, else the recorded values."""
-    results_path = RUNS_DIR / "results.json"
-    if results_path.is_file():
-        data = json.loads(results_path.read_text())
-        params = data.get("calibrated_params")
-        if params:
-            return {k: float(v) for k, v in params.items()}
-    return dict(CALIBRATED_PARAMS)
+def parse_prior_ranking(prior_text: str, prior_path: Any = None) -> List[str]:
+    """Parse and validate the LLM-prior control file.
+
+    Returns the list of ECM ids in the prior ranking.  Every problem is
+    reported as a one-line :class:`PreflightError` (a ``SystemExit``) that
+    names the file and the problem, instead of a traceback.
+
+    The validated content is: a JSON object with a ``ranking`` list whose
+    entries are objects carrying an ``ecm_id`` naming one of the known ECMs.
+    """
+    where = f" ({prior_path})" if prior_path is not None else ""
+    try:
+        prior = json.loads(prior_text)
+    except json.JSONDecodeError as exc:
+        raise PreflightError(
+            f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+            f"not valid JSON ({exc})"
+        ) from None
+    if not isinstance(prior, dict):
+        raise PreflightError(
+            f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+            "the top-level value is not a JSON object"
+        )
+    if "ranking" not in prior:
+        raise PreflightError(
+            f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+            "missing the 'ranking' key"
+        )
+    ranking = prior["ranking"]
+    if not isinstance(ranking, list):
+        raise PreflightError(
+            f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+            "'ranking' is not a list"
+        )
+    prior_ranking: List[str] = []
+    for index, entry in enumerate(ranking):
+        if not isinstance(entry, dict):
+            raise PreflightError(
+                f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+                f"ranking entry {index} is not a JSON object"
+            )
+        if "ecm_id" not in entry:
+            raise PreflightError(
+                f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+                f"ranking entry {index} has no 'ecm_id' key"
+            )
+        ecm_id = entry["ecm_id"]
+        if ecm_id not in E.ECM_IDS:
+            raise PreflightError(
+                f"invalid LLM prior file {PRIOR_FILE_NAME}{where}: "
+                f"unknown ECM id {ecm_id!r} in ranking entry {index} "
+                f"(known ids: {', '.join(E.ECM_IDS)})"
+            )
+        prior_ranking.append(ecm_id)
+    return prior_ranking
+
+
+def load_calibrated_params(results_path: Optional[Path] = None) -> Dict[str, float]:
+    """Use the slice-1 results file when present, else the recorded values.
+
+    A present results file is validated: it must be a JSON object with a
+    ``calibrated_params`` object whose keys are known parameter names
+    (:data:`idf_params.PARAM_NAMES`) and whose values are numbers.  Problems
+    are reported as a one-line :class:`PreflightError` (a ``SystemExit``)
+    naming ``runs/results.json`` and the offending key.  An absent results
+    file is not an error: the recorded ``CALIBRATED_PARAMS`` are used.
+    """
+    path = Path(results_path) if results_path is not None else RUNS_DIR / RESULTS_FILE_NAME
+    if not path.is_file():
+        return dict(CALIBRATED_PARAMS)
+    where = f" ({path})"
+    try:
+        data = json.loads(path.read_text())
+    except json.JSONDecodeError as exc:
+        raise PreflightError(
+            f"invalid results file {RESULTS_FILE_LABEL}{where}: "
+            f"not valid JSON ({exc})"
+        ) from None
+    if not isinstance(data, dict):
+        raise PreflightError(
+            f"invalid results file {RESULTS_FILE_LABEL}{where}: "
+            "the top-level value is not a JSON object"
+        )
+    params = data.get("calibrated_params")
+    if not params:
+        return dict(CALIBRATED_PARAMS)
+    if not isinstance(params, dict):
+        raise PreflightError(
+            f"invalid results file {RESULTS_FILE_LABEL}{where}: "
+            "'calibrated_params' is not a JSON object"
+        )
+    unknown = [k for k in params if k not in P.PARAM_NAMES]
+    if unknown:
+        raise PreflightError(
+            f"invalid results file {RESULTS_FILE_LABEL}{where}: "
+            f"unknown parameter name(s) {', '.join(repr(k) for k in unknown)} "
+            f"(known names: {', '.join(P.PARAM_NAMES)})"
+        )
+    out: Dict[str, float] = {}
+    for key, value in params.items():
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise PreflightError(
+                f"invalid results file {RESULTS_FILE_LABEL}{where}: "
+                f"parameter {key!r} is not a number (got {value!r})"
+            )
+        out[key] = float(value)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -500,11 +616,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "written before any ECM simulation (step 2 of the slice brief)"
         )
     prior_text = PRIOR_FILE.read_text()
-    prior = json.loads(prior_text)
-    prior_ranking = [entry["ecm_id"] for entry in prior["ranking"]]
+    prior_ranking = parse_prior_ranking(prior_text, PRIOR_FILE)
     prior_mtime = datetime.fromtimestamp(PRIOR_FILE.stat().st_mtime, timezone.utc)
 
-    binary = R.find_energyplus()
+    # -- the slice-1 results file (validated before any simulation) ----------
+    calibrated_params = load_calibrated_params()
+
+    try:
+        binary = R.find_energyplus()
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc))
     version = R.energyplus_version(binary)
     install = find_install_dir(binary)
     idf = install / "ExampleFiles" / IDF_NAME
@@ -513,7 +634,6 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not path.is_file():
             raise FileNotFoundError(path)
 
-    calibrated_params = load_calibrated_params()
     models = {
         "calibrated": calibrated_params,
         "true": dict(TRUE_PARAMS),
