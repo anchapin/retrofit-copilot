@@ -421,6 +421,61 @@ def test_ranking_is_by_annual_kwh_saved_descending():
     assert order[-1] == "E4"
 
 
+def _fuel_series(run_id: str, columns: Dict[str, np.ndarray]) -> RES.RunSeries:
+    hours = len(next(iter(columns.values()))) if columns else 24
+    return RES.RunSeries(
+        run_id=run_id,
+        months=np.ones(hours, dtype=int),
+        hours=np.arange(hours),
+        columns=dict(columns),
+    )
+
+
+def test_fuel_kwh_raises_when_no_fuel_meter_is_present():
+    series = _fuel_series(
+        "no-meters",
+        {"SPACE1-1:Zone Air Temperature [C](Hourly)": np.full(24, 22.0)},
+    )
+    with pytest.raises(KeyError):
+        RE.fuel_kwh(series)
+
+
+def test_fuel_kwh_with_electricity_only():
+    series = _fuel_series(
+        "elec-only",
+        {"Electricity:Facility [J](Hourly)": np.full(24, 3.6e6)},
+    )
+    fuel = RE.fuel_kwh(series)
+    assert fuel["electricity"] == pytest.approx(24.0)
+    assert fuel["natural_gas"] == pytest.approx(0.0)
+    assert fuel["total"] == pytest.approx(24.0)
+
+
+def test_fuel_kwh_with_natural_gas_only():
+    series = _fuel_series(
+        "gas-only",
+        {"NaturalGas:Facility [J](Hourly)": np.full(24, 1.8e6)},
+    )
+    fuel = RE.fuel_kwh(series)
+    assert fuel["electricity"] == pytest.approx(0.0)
+    assert fuel["natural_gas"] == pytest.approx(12.0)
+    assert fuel["total"] == pytest.approx(12.0)
+
+
+def test_fuel_kwh_with_both_fuels():
+    series = _fuel_series(
+        "both",
+        {
+            "Electricity:Facility [J](Hourly)": np.full(24, 3.6e6),
+            "NaturalGas:Facility [J](Hourly)": np.full(24, 1.8e6),
+        },
+    )
+    fuel = RE.fuel_kwh(series)
+    assert fuel["electricity"] == pytest.approx(24.0)
+    assert fuel["natural_gas"] == pytest.approx(12.0)
+    assert fuel["total"] == pytest.approx(36.0)
+
+
 def test_comfort_metrics_report_band_hours():
     series = _series("s", 1.0, 1.0, temp=30.0)
     comfort = RE.comfort_metrics(series)
