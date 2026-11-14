@@ -1,4 +1,5 @@
-"""Slice-2 driver: run the 5 ECMs on the calibrated model AND the true model,
+"""Slice-2 driver: run the 6 ECMs (E1-E5 plus the E4HP heat-pump variant of
+E4) on the calibrated model AND the true model,
 rank them, and compare the simulation-grounded ranking with the LLM prior.
 
     python src/run_ecms.py --all
@@ -32,7 +33,7 @@ savings sort last:
 
     python src/run_ecms.py --all --rank-by cost
 
-Twelve EnergyPlus runs are recorded (2 model baselines + 5 ECMs x 2 models);
+Fourteen EnergyPlus runs are recorded (2 model baselines + 6 ECMs x 2 models);
 every run gets a run id, a run directory and a manifest under
 ``runs/``.  The LLM-prior control
 (``runs/llm_prior_ranking.json``) must exist before the
@@ -430,6 +431,20 @@ def ranking_from_metrics(
 # ---------------------------------------------------------------------------
 # the headline table
 # ---------------------------------------------------------------------------
+def _detail_ecm_ids(metrics: Dict[str, Dict[str, Any]]) -> List[str]:
+    """The ECM ids listed in the per-ECM detail table, in registry order.
+
+    The detail table lists the ECMs that are actually *present* in the
+    metrics it is given, so a results set recorded before an ECM was added
+    (e.g. the E4HP heat-pump variant) still renders, while a fresh run
+    lists every registered ECM.  The order is the registry order, so the
+    recorded rendering is unchanged.
+    """
+    known = [ecm_id for ecm_id in E.ECM_IDS if ecm_id in metrics]
+    extra = sorted(ecm_id for ecm_id in metrics if ecm_id not in E.ECM_IDS)
+    return known + extra
+
+
 def headline_table_lines(
     version: str,
     agent_ranking: List[str],
@@ -531,7 +546,7 @@ def headline_table_lines(
     )
     lines.append("|---|---|---|---|---|---|---|---|---|---|---|")
     for model_name in ("calibrated", "true"):
-        for ecm_id in E.ECM_IDS:
+        for ecm_id in _detail_ecm_ids(model_metrics[model_name]):
             m = model_metrics[model_name][ecm_id]
             payback = m["simple_payback_years"]
             lines.append(

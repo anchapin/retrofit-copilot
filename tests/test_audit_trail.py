@@ -37,9 +37,26 @@ RUNS_DIR = (
 RESULTS_PATH = RUNS_DIR / "ecm_results.json"
 PRIOR_PATH = RUNS_DIR / "llm_prior_ranking.json"
 
+#: The five core ECMs of the POC.  ``E4HP`` (the heat-pump variant of E4)
+#: was added after the recorded slice-2 run, so the committed fixture holds
+#: the five core ECMs while a fresh run also records E4HP.
+CORE_ECM_IDS = ("E1", "E2", "E3", "E4", "E5")
+
 
 def _load_results():
     return json.loads(RESULTS_PATH.read_text())
+
+
+def _recorded_ecm_ids(results):
+    """The ECM ids the audited results file actually records.
+
+    The audit trail follows the *recorded* ECMs - the committed fixture is
+    the recorded slice-2 run of the five core ECMs, a live ``runs/``
+    directory may also hold the E4HP heat-pump variant - and the tests
+    below check that the five core ECMs are among them.
+    """
+    recorded = set(results["metrics"]["calibrated"]) | set(results["metrics"]["true"])
+    return [ecm_id for ecm_id in E.ECM_IDS if ecm_id in recorded]
 
 
 def _prior_write_time(results):
@@ -62,8 +79,10 @@ def _prior_write_time(results):
 def test_every_ranked_ecm_cites_a_run_id_that_exists_in_a_manifest():
     results = _load_results()
     metrics = results["metrics"]
+    recorded = _recorded_ecm_ids(results)
+    assert set(CORE_ECM_IDS) <= set(recorded)
     for model in ("calibrated", "true"):
-        for ecm_id in E.ECM_IDS:
+        for ecm_id in recorded:
             run_id = metrics[model][ecm_id]["run_id"]
             assert run_id
             path = R.manifest_path(run_id, runs_dir=RUNS_DIR)
@@ -75,14 +94,16 @@ def test_every_ranked_ecm_cites_a_run_id_that_exists_in_a_manifest():
             assert manifest["inputs"]["idf_simulated"]["patched"] is True
 
 
-def test_the_ten_ecm_runs_and_the_two_baselines_are_recorded():
+def test_the_ecm_runs_and_the_two_baselines_are_recorded():
     results = _load_results()
     runs = results["runs"]
+    recorded = _recorded_ecm_ids(results)
+    assert set(CORE_ECM_IDS) <= set(recorded)
     assert set(runs) == {
         "baseline_calibrated",
         "baseline_true",
-    } | {f"{ecm_id}_{model}" for ecm_id in E.ECM_IDS for model in ("calibrated", "true")}
-    assert len(runs) == 12
+    } | {f"{ecm_id}_{model}" for ecm_id in recorded for model in ("calibrated", "true")}
+    assert len(runs) == 2 + 2 * len(recorded)
     for run_id in runs.values():
         assert R.manifest_path(run_id, runs_dir=RUNS_DIR).is_file()
 
@@ -103,7 +124,7 @@ def test_the_llm_prior_control_predates_the_ecm_simulations():
     assert results["llm_prior"]["sha256"]
     prior_mtime = _prior_write_time(results)
     created = []
-    for ecm_id in E.ECM_IDS:
+    for ecm_id in _recorded_ecm_ids(results):
         for model in ("calibrated", "true"):
             run_id = results["runs"][f"{ecm_id}_{model}"]
             manifest = json.loads(
@@ -113,16 +134,21 @@ def test_the_llm_prior_control_predates_the_ecm_simulations():
     assert prior_mtime < min(created), "the prior ranking must be written before the ECM runs"
 
 
-def test_the_prior_ranking_covers_the_five_ecms():
+def test_the_prior_ranking_covers_the_five_core_ecms():
+    """The LLM-prior control covers the five core ECMs.
+
+    ``E4HP`` was added after the prior control was written, so the prior
+    does not (and cannot) rank it; the control stays as it was recorded.
+    """
     results = _load_results()
     prior = results["llm_prior"]["ranking"]
-    assert sorted(prior) == sorted(E.ECM_IDS)
+    assert sorted(prior) == sorted(CORE_ECM_IDS)
 
 
 def test_every_reported_cost_in_the_results_is_a_placeholder():
     results = _load_results()
     for model in ("calibrated", "true"):
-        for ecm_id in E.ECM_IDS:
+        for ecm_id in _recorded_ecm_ids(results):
             entry = results["metrics"][model][ecm_id]
             assert entry["cost_label"] == E.PLACEHOLDER
             assert E.PLACEHOLDER in entry["cost_basis"]

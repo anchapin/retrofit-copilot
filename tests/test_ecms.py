@@ -292,6 +292,120 @@ def test_e4_leaves_the_cooling_plant_alone(fixture_idf):
 
 
 # ---------------------------------------------------------------------------
+# E4HP - heat-pump variant of E4 (effective-efficiency approximation)
+# ---------------------------------------------------------------------------
+def test_e4hp_switches_the_boiler_fuel_to_electricity(fixture_idf):
+    new_text, changes = E.get_ecm("E4HP").apply(fixture_idf)
+    fields = {c["field"]: c for c in changes}
+    assert fields["Fuel Type"]["old"] == "NaturalGas"
+    assert fields["Fuel Type"]["new"] == "Electricity"
+    objects = objects_of(new_text)
+    boiler = find(objects, "Boiler:HotWater", "Central Boiler")
+    assert boiler.fields[1].strip() == "Electricity"
+    # the efficiency is the COP parameter (3.0 by default)
+    assert float(boiler.fields[3]) == pytest.approx(E.E4HP_COP)
+    assert E.E4HP_COP == pytest.approx(3.0)
+    assert boiler.fields[5].strip() == ""  # constant-efficiency boiler
+
+
+def test_e4hp_records_the_cop_as_the_nominal_thermal_efficiency(fixture_idf):
+    _new_text, changes = E.get_ecm("E4HP").apply(fixture_idf)
+    efficiency = [c for c in changes if c["field"] == "Nominal Thermal Efficiency"]
+    assert len(efficiency) == 1
+    assert efficiency[0]["old"] == pytest.approx(0.8)
+    assert efficiency[0]["new"] == pytest.approx(E.E4HP_COP)
+    # every change record belongs to E4HP
+    assert {c["ecm"] for c in changes} == {"E4HP"}
+    assert {c["name"] for c in changes} == {"Central Boiler"}
+
+
+def test_e4hp_is_labelled_as_an_effective_efficiency_approximation(fixture_idf):
+    ecm = E.get_ecm("E4HP")
+    text = " ".join(
+        [
+            ecm.definition,
+            ecm.mechanism,
+            ecm.assumptions,
+            ecm.cost_basis,
+        ]
+    ).lower()
+    assert "effective-efficiency approximation of a heat pump" in text
+    assert "not a heat-pump model" in text
+
+
+def test_e4hp_cost_is_the_e4_placeholder(fixture_idf):
+    cost = E.get_ecm("E4HP").cost(fixture_idf)
+    assert cost["amount_usd"] == pytest.approx(E.E4_ELECTRIFICATION_COST_USD_PLACEHOLDER)
+    assert cost["label"] == E.PLACEHOLDER
+    assert E.PLACEHOLDER in cost["basis"]
+
+
+def test_e4hp_leaves_the_cooling_plant_alone(fixture_idf):
+    new_text, _changes = E.get_ecm("E4HP").apply(fixture_idf)
+    before = objects_of(fixture_idf)
+    after = objects_of(new_text)
+    assert find(before, "Chiller:Electric", "Central Chiller").fields == find(
+        after, "Chiller:Electric", "Central Chiller"
+    ).fields
+
+
+def test_e4hp_cop_is_a_parameter(fixture_idf):
+    """The COP is a parameter: another value gives another efficiency."""
+    import dataclasses
+
+    ecm = E.get_ecm("E4HP")
+    assert ecm.parameters == {"cop": E.E4HP_COP}
+    other = dataclasses.replace(ecm, parameters={"cop": 2.5})
+    new_text, changes = other.apply(fixture_idf)
+    boiler = find(objects_of(new_text), "Boiler:HotWater", "Central Boiler")
+    assert float(boiler.fields[3]) == pytest.approx(2.5)
+    efficiency = [c for c in changes if c["field"] == "Nominal Thermal Efficiency"]
+    assert efficiency[0]["new"] == pytest.approx(2.5)
+
+
+def test_e4hp_rejects_a_non_positive_cop(fixture_idf):
+    import dataclasses
+
+    ecm = E.get_ecm("E4HP")
+    bad = dataclasses.replace(ecm, parameters={"cop": 0.0})
+    with pytest.raises(ValueError):
+        bad.apply(fixture_idf)
+
+
+def test_e4hp_is_a_registered_ecm_of_the_pipeline():
+    """The pipeline runs every registered ECM, so E4HP gets its own runs."""
+    assert "E4HP" in [ecm.ecm_id for ecm in E.ECMS]
+    assert E.get_ecm("E4HP").ecm_id == "E4HP"
+    # the ECM is applied to the model IDF of both models (calibrated, true)
+    # by the driver, which iterates over the registered ECMs
+    assert [ecm.ecm_id for ecm in E.ECMS].count("E4HP") == 1
+
+
+def test_e4hp_appears_in_the_headline_table():
+    """E4HP is ranked and listed in the per-ECM detail of the table."""
+    fixtures = Path(__file__).resolve().parent / "fixtures"
+    data = json.loads((fixtures / "ecm_results.json").read_text())
+    metrics = {model: dict(data["metrics"][model]) for model in ("calibrated", "true")}
+    for model in ("calibrated", "true"):
+        e4hp = dict(metrics[model]["E4"])
+        e4hp["energy_saved_kwh"] = 1234.5
+        metrics[model]["E4HP"] = e4hp
+    lines = RE.headline_table_lines(
+        version=data["energyplus_version"],
+        agent_ranking=RE.ranking_from_metrics(metrics["calibrated"]),
+        truth_ranking=RE.ranking_from_metrics(metrics["true"]),
+        prior_ranking=list(data["llm_prior"]["ranking"]),
+        model_metrics=metrics,
+        runs=data["runs"],
+        factors=E.default_factors(),
+    )
+    table = "\n".join(lines)
+    assert "| E4HP | calibrated |" in table
+    assert "| E4HP | true |" in table
+    assert "E4HP" in RE.ranking_from_metrics(metrics["calibrated"])
+
+
+# ---------------------------------------------------------------------------
 # E5 - controls
 # ---------------------------------------------------------------------------
 def test_e5_widens_the_deadband_in_the_occupied_blocks_only(fixture_idf):
@@ -347,8 +461,9 @@ def test_every_ecm_cost_is_labelled_as_a_placeholder(fixture_idf):
         assert described["placeholder_cost_usd"] == cost["amount_usd"]
 
 
-def test_the_five_ecms_are_defined_with_the_expected_ids():
-    assert E.ECM_IDS == ("E1", "E2", "E3", "E4", "E5")
+def test_the_ecms_are_defined_with_the_expected_ids():
+    """The five core ECMs plus the E4HP heat-pump variant of E4."""
+    assert E.ECM_IDS == ("E1", "E2", "E3", "E4", "E4HP", "E5")
     for ecm in E.ECMS:
         assert ecm.definition.strip()
         assert ecm.mechanism.strip()
