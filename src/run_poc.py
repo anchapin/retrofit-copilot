@@ -152,6 +152,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--max-sweeps", type=int, default=3)
     ap.add_argument("--out", type=Path, default=RUNS_DIR / "headline_table.md")
     args = ap.parse_args(argv)
+    if not args.all:
+        ap.error("nothing to do: pass --all")
+    if args.max_sweeps < 1:
+        ap.error(f"--max-sweeps must be >= 1 (got {args.max_sweeps})")
 
     try:
         binary = R.find_energyplus()
@@ -250,6 +254,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         "final calibrated model: " + json.dumps(search.best_params, sort_keys=True),
     )
     print(f"calibrated run id: {calibrated['run_id']}")
+    if calibrated["returncode"] != 0:
+        raise RuntimeError(f"calibrated EnergyPlus run failed: {calibrated.get('failure')}")
 
     cal_series = RES.load_run_series(Path(calibrated["cwd"]), calibrated["run_id"])
     cal_energy = RES.facility_energy_kwh(cal_series)
