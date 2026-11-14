@@ -111,6 +111,22 @@ def find_install_dir(binary: Path) -> Path:
     raise FileNotFoundError(f"no ExampleFiles/ next to the EnergyPlus binary at {binary}")
 
 
+def resolve_input_paths(
+    install: Path, idf_name: str, epw_name: str
+) -> Tuple[Path, Path]:
+    """Resolve the building and weather file names against the install.
+
+    The names are resolved exactly like the module constants have always
+    been resolved: the IDF against ``install/ExampleFiles`` and the EPW
+    against ``install/WeatherData``.  An absolute path passed as a name is
+    used as given.
+    """
+    return (
+        install / "ExampleFiles" / idf_name,
+        install / "WeatherData" / epw_name,
+    )
+
+
 def parse_prior_ranking(prior_text: str, prior_path: Any = None) -> List[str]:
     """Parse and validate the LLM-prior control file.
 
@@ -572,7 +588,8 @@ def write_outputs(out_path: Path, lines: List[str], results: Dict[str, Any]) -> 
     return results_path
 
 
-def main(argv: Optional[Sequence[str]] = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
+    """The command line of the slice-2 driver."""
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--all", action="store_true", help="run the full slice-2 ECM pipeline")
     ap.add_argument("--out", type=Path, default=RUNS_DIR / "ecm_headline_table.md")
@@ -587,6 +604,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         ),
     )
     ap.add_argument(
+        "--idf",
+        default=IDF_NAME,
+        help=(
+            "building IDF file name, resolved against the EnergyPlus "
+            f"install's ExampleFiles directory (default: {IDF_NAME})"
+        ),
+    )
+    ap.add_argument(
+        "--epw",
+        default=EPW_NAME,
+        help=(
+            "weather EPW file name, resolved against the EnergyPlus "
+            f"install's WeatherData directory (default: {EPW_NAME})"
+        ),
+    )
+    ap.add_argument(
         "--factors",
         type=Path,
         default=None,
@@ -598,6 +631,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "config/factors.placeholder.json (the PLACEHOLDER factor set)."
         ),
     )
+    return ap
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    ap = build_parser()
     args = ap.parse_args(argv)
     if not args.all:
         ap.error("nothing to do: pass --all")
@@ -628,8 +666,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         raise SystemExit(str(exc))
     version = R.energyplus_version(binary)
     install = find_install_dir(binary)
-    idf = install / "ExampleFiles" / IDF_NAME
-    epw = install / "WeatherData" / EPW_NAME
+    idf, epw = resolve_input_paths(install, args.idf, args.epw)
     for path in (idf, epw):
         if not path.is_file():
             raise FileNotFoundError(path)

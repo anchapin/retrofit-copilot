@@ -208,6 +208,7 @@ def run_energyplus(
             "idf_source": {
                 "path": str(idf.resolve()),
                 "sha256": sha256_file(idf),
+                "name": idf.name,
             },
             "idf_simulated": {
                 "path": str(sim_idf.resolve()),
@@ -217,6 +218,7 @@ def run_energyplus(
             "weather": {
                 "path": str(epw.resolve()),
                 "sha256": sha256_file(epw),
+                "name": epw.name,
             },
         },
         "outputs": outputs,
