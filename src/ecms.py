@@ -1,4 +1,9 @@
-"""The five pre-defined energy conservation measures (ECMs) of the POC.
+"""The pre-defined energy conservation measures (ECMs) of the POC.
+
+There are five core ECMs (E1-E5) plus ``E4HP``, the heat-pump variant of
+E4: an *effective-efficiency approximation* of a heat pump (the nominal
+thermal efficiency of the electric boiler is set to a COP parameter), not a
+heat-pump model.  See the E4HP section of this module.
 
 Energy prices and emission factors
 ----------------------------------
@@ -333,12 +338,18 @@ class Ecm:
     cost_basis: str
     assumptions: str
     grid_flexibility: str
-    apply_fn: Callable[[str], Tuple[str, List[Dict[str, Any]]]]
+    apply_fn: Callable[..., Tuple[str, List[Dict[str, Any]]]]
     cost_fn: Callable[[str], Dict[str, Any]]
+    #: Optional parameters handed to ``apply_fn`` (e.g. the E4HP COP).  An
+    #: ECM without parameters calls ``apply_fn`` with the IDF text only, so
+    #: the five core ECMs behave exactly as before.
+    parameters: Dict[str, Any] = field(default_factory=dict)
 
     # -- public API --------------------------------------------------------
     def apply(self, idf_text: str) -> Tuple[str, List[Dict[str, Any]]]:
         """Apply the ECM to a copy of ``idf_text``; return (new text, changes)."""
+        if self.parameters:
+            return self.apply_fn(idf_text, **self.parameters)
         return self.apply_fn(idf_text)
 
     def cost(self, idf_text: str) -> Dict[str, Any]:
@@ -347,7 +358,7 @@ class Ecm:
 
     def to_dict(self, idf_text: str) -> Dict[str, Any]:
         cost = self.cost(idf_text)
-        return {
+        out = {
             "ecm_id": self.ecm_id,
             "name": self.name,
             "definition": self.definition,
@@ -358,6 +369,9 @@ class Ecm:
             "placeholder_cost_usd": cost["amount_usd"],
             "cost_label": cost["label"],
         }
+        if self.parameters:
+            out["parameters"] = dict(self.parameters)
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -702,6 +716,114 @@ def _cost_e4(idf_text: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# E4HP - heat-pump variant of E4 (effective-efficiency approximation)
+# ---------------------------------------------------------------------------
+#: The ``Boiler:HotWater`` object the E4HP variant switches to electricity.
+E4HP_BOILER_NAME = "Central Boiler"
+
+#: The nominal COP of the heat-pump variant of E4.  It is used as the
+#: *nominal thermal efficiency* of the electric boiler: the fuel switch of
+#: E4 with the heat-pump efficiency folded into a single effective
+#: efficiency number.  This is an **effective-efficiency approximation of a
+#: heat pump, not a heat-pump model**: no coil, no heat-pump plant, no
+#: condenser-water loop and no part-load behaviour of a real machine is
+#: modelled - only the fuel switch of E4 and a constant efficiency of
+#: ``E4HP_COP``.
+E4HP_COP = 3.0
+
+
+def _apply_e4hp(idf_text: str, cop: float = E4HP_COP) -> Tuple[str, List[Dict[str, Any]]]:
+    """Switch the central boiler to electricity with a heat-pump-like efficiency.
+
+    Mechanism: exactly the fuel switch of E4 - the ``Boiler:HotWater``
+    object keeps its name, capacity and nodes, its ``Fuel Type`` changes
+    from ``NaturalGas`` to ``Electricity`` and the normalised boiler
+    efficiency curve is blanked (a constant-efficiency boiler) - but the
+    ``Nominal Thermal Efficiency`` is set to the COP parameter (3.0 by
+    default) instead of 1.00.
+
+    APPROXIMATION (recorded): this is an *effective-efficiency approximation
+    of a heat pump*, **not** a heat-pump model.  The building still heats its
+    zones through the shipped hydronic loop and its ``Boiler:HotWater``
+    object; the only thing the COP changes is the efficiency with which that
+    boiler converts electricity into heat.  A real heat pump would need a
+    coil, a loop, a branch and a condenser-water loop (see the SUBSTITUTION
+    note of E4), so the honest, cheap and transparent variant is the fuel
+    switch with the heat-pump efficiency expressed as a single effective
+    efficiency.
+    """
+    if cop <= 0.0:
+        raise ValueError(f"E4HP: the COP must be positive, got {cop!r}")
+    objects = P.parse_idf(idf_text)
+    changes: List[Dict[str, Any]] = []
+    for obj in objects:
+        if obj.otype.lower() != "boiler:hotwater":
+            continue
+        if obj.fields[0].strip() != E4HP_BOILER_NAME:
+            continue
+        old_fuel = obj.fields[1].strip()
+        obj.fields[1] = "Electricity"
+        changes.append(
+            {
+                "ecm": "E4HP",
+                "object": obj.otype,
+                "name": obj.fields[0].strip(),
+                "field": "Fuel Type",
+                "old": old_fuel,
+                "new": "Electricity",
+            }
+        )
+        old_eff = float(obj.fields[3])
+        obj.fields[3] = _fmt(cop)
+        changes.append(
+            {
+                "ecm": "E4HP",
+                "object": obj.otype,
+                "name": obj.fields[0].strip(),
+                "field": "Nominal Thermal Efficiency",
+                "old": old_eff,
+                "new": float(cop),
+            }
+        )
+        # constant efficiency: blank the efficiency curve reference, so the
+        # effective efficiency is the COP at every part-load ratio
+        if len(obj.fields) > 5 and obj.fields[5].strip():
+            old_curve = obj.fields[5]
+            obj.fields[4] = ""
+            obj.fields[5] = ""
+            changes.append(
+                {
+                    "ecm": "E4HP",
+                    "object": obj.otype,
+                    "name": obj.fields[0].strip(),
+                    "field": "Normalized Boiler Efficiency Curve Name",
+                    "old": old_curve,
+                    "new": None,
+                }
+            )
+        obj._dirty = True  # type: ignore[attr-defined]
+    if not changes:
+        raise ValueError("E4HP: central boiler not found in the IDF")
+    return P.render_idf(objects), changes
+
+
+def _cost_e4hp(idf_text: str) -> Dict[str, Any]:
+    # the same PLACEHOLDER lump sum as E4: the edit is the same fuel switch
+    # with a different efficiency number, and no real heat-pump equipment
+    # price is known here (every cost in this module is a PLACEHOLDER).
+    return {
+        "amount_usd": E4_ELECTRIFICATION_COST_USD_PLACEHOLDER,
+        "label": PLACEHOLDER,
+        "basis": (
+            "PLACEHOLDER lump sum (the same heating-plant electrification "
+            "placeholder as E4: equipment + install + nominal service "
+            "upgrade); the heat-pump variant carries no separate price "
+            "because every cost in this module is a PLACEHOLDER"
+        ),
+    }
+
+
+# ---------------------------------------------------------------------------
 # E5 - thermostat deadband widening / night setback
 # ---------------------------------------------------------------------------
 E5_COOLING_SCHEDULE = "Clg-SetP-Sch"
@@ -841,7 +963,7 @@ def _cost_e5(idf_text: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# the five ECMs
+# the ECMs: the five core measures (E1-E5) plus the E4HP heat-pump variant
 # ---------------------------------------------------------------------------
 ECMS: Tuple[Ecm, ...] = (
     Ecm(
@@ -1011,6 +1133,60 @@ ECMS: Tuple[Ecm, ...] = (
         ),
         apply_fn=_apply_e4,
         cost_fn=_cost_e4,
+    ),
+    Ecm(
+        ecm_id="E4HP",
+        name="Heating electrification with a heat-pump efficiency (E4 variant)",
+        definition=(
+            "The heat-pump variant of E4: the ``Boiler:HotWater`` object is "
+            "switched from natural gas to electricity exactly as in E4, but "
+            "its nominal thermal efficiency is set to a COP parameter (3.0 by "
+            "default) instead of 1.00, i.e. one unit of electricity is "
+            "treated as three units of heat.  RECORDED APPROXIMATION: this "
+            "is an **effective-efficiency approximation of a heat pump, not a "
+            "heat-pump model**.  The building still heats its zones through "
+            "the shipped hydronic loop and its boiler object; no heat-pump "
+            "coil, loop, branch or condenser-water loop is added (that would "
+            "be a different building model, see the SUBSTITUTION note of "
+            "E4).  The only thing the COP changes is the effective "
+            "efficiency of the fuel switch.  The consequence for the "
+            "metrics: the electricity use of the heating falls by roughly "
+            "the factor 1/(COP x boiler efficiency) while the cost of that "
+            "electricity usually rises, so E4HP is the extreme case of the "
+            "honesty test that E4 already is."
+        ),
+        mechanism=(
+            "Boiler:HotWater 'Central Boiler': Fuel Type NaturalGas -> "
+            "Electricity; Nominal Thermal Efficiency 0.80 -> the COP "
+            "parameter (3.0 by default); the normalised efficiency curve "
+            "reference is blanked (constant-efficiency boiler)."
+        ),
+        cost_basis=(
+            "PLACEHOLDER lump sum: the same heating-plant electrification "
+            "placeholder as E4 (equipment + installation + a nominal "
+            "electrical service upgrade)."
+        ),
+        assumptions=(
+            "Effective-efficiency approximation of a heat pump, not a "
+            "heat-pump model: the COP is a single constant number applied at "
+            "every part-load ratio, with no compressor, no defrost, no "
+            "refrigerant, no condenser-water loop and no seasonal "
+            "performance variation.  The nominal thermal efficiency of the "
+            "boiler is therefore above 1.0, which is the intended "
+            "effective-efficiency encoding, not a physical boiler "
+            "efficiency.  No change to the chilled-water plant, no change to "
+            "the emission factors beyond the stated placeholders and no "
+            "time-of-use shifting is modelled.  The boiler is autosized as "
+            "before.  Cost is a PLACEHOLDER."
+        ),
+        grid_flexibility=(
+            "Medium: like E4, the heating load is dispatchable and can be "
+            "curtailed or shifted, but the (much smaller) electric load adds "
+            "winter peak load to the electricity system."
+        ),
+        apply_fn=_apply_e4hp,
+        cost_fn=_cost_e4hp,
+        parameters={"cop": E4HP_COP},
     ),
     Ecm(
         ecm_id="E5",
