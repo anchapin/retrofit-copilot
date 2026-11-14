@@ -22,9 +22,20 @@ Conditional, or No-go).
 ```sh
 sh scripts/fetch_energyplus.sh   # EnergyPlus 26.2.0, ~242 MB download
 python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt
-.venv/bin/python src/run_ecms.py --all   # 10 ECM runs + headline table + ecm_results.json
-python3 -m pytest tests/ -q   # 55 passed
+.venv/bin/python src/run_ecms.py --all   # 12 runs (5 ECMs x 2 models + 2 baselines) + headline table + ecm_results.json
+python3 -m pytest tests/ -q   # 128 passed
 ```
+
+The cost and carbon columns come from a JSON *factors file*; the default is the
+shipped `config/factors.placeholder.json` (the PLACEHOLDER factor set) and any
+other file may be passed with `--factors <path.json>`, e.g.
+
+```sh
+.venv/bin/python src/run_ecms.py --all --factors my_factors.json
+```
+
+The source path of the factor set is recorded in the outputs — the headline
+table and `ecm_results.json`.
 
 The ECM pipeline runs each of the 5 ECMs on the calibrated model and on the
 true model (12 runs total including the two baselines, ~35 s each under load)
@@ -59,7 +70,7 @@ re-runs (full-year CV(RMSE) 1.63%, monthly NMBE within ±0.57%).
 sh scripts/fetch_energyplus.sh   # EnergyPlus 26.2.0, ~242 MB download
 python3 -m venv .venv && .venv/bin/pip install -q -r requirements.txt
 .venv/bin/python src/run_poc.py --all --max-sweeps 3 --out runs/headline_table.md
-python3 -m pytest tests/ -q   # 30 passed
+python3 -m pytest tests/ -q   # 128 passed
 ```
 
 The full pipeline runs 69 EnergyPlus simulations (~10 min, ~9 s each) and
