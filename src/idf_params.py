@@ -16,6 +16,26 @@ The three named parameters are:
 ``cooling_setpoint_offset_k``
     Shifts every temperature value of the ``Clg-SetP-Sch`` schedule by the
     given number of kelvin.  0.0 = as shipped.
+
+Scope of the conductivity scaling
+----------------------------------
+``envelope_conductivity_scale_scope`` is an *opt-in* sibling key that selects
+how widely ``envelope_conductivity_scale`` is applied:
+
+``"blanket"`` (the default)
+    Every ``Material`` conductivity is scaled -- the slice-1 behaviour.  This
+    stays the default so that every recorded slice-1/slice-2 result still
+    reproduces bit-identically.
+``"envelope"``
+    Only the ``Material`` objects that are layers of the constructions used by
+    outdoor-facing opaque surfaces are scaled.  The construction selection is
+    E1's (see :func:`ecms.opaque_envelope_area`): outdoor-facing walls and
+    roofs only, so interior constructions (ceiling, interior wall, floor
+    slab) and the materials they use are left untouched.
+
+The scope key is *not* part of :data:`PARAM_NAMES`: it is a string-valued
+switch, not a calibrated numeric parameter, so it never enters a calibration
+grid and is never written to (or read from) a recorded results file.
 """
 
 from __future__ import annotations
@@ -35,6 +55,26 @@ DEFAULT_PARAMS: Dict[str, float] = {
     "envelope_conductivity_scale": 1.0,
     "cooling_setpoint_offset_k": 0.0,
 }
+
+#: Name of the opt-in scope switch for ``envelope_conductivity_scale``.
+#:
+#: It is deliberately *not* part of :data:`PARAM_NAMES`: it is a
+#: string-valued switch, not a calibrated numeric parameter, so it never
+#: enters a calibration grid and is never read from (or written to) a
+#: recorded results file.
+SCOPE_PARAM_NAME = "envelope_conductivity_scale_scope"
+
+#: Scale the conductivity of *every* ``Material`` (the slice-1 behaviour).
+SCOPE_BLANKET = "blanket"
+#: Scale only the materials of the constructions used by outdoor-facing
+#: opaque surfaces (E1's construction selection).
+SCOPE_ENVELOPE = "envelope"
+
+#: The valid scope values.
+CONDUCTIVITY_SCOPES = (SCOPE_BLANKET, SCOPE_ENVELOPE)
+#: The default scope: blanket, so the recorded slice-1/slice-2 results
+#: reproduce bit-identically.
+DEFAULT_CONDUCTIVITY_SCOPE = SCOPE_BLANKET
 
 
 @dataclass
@@ -162,13 +202,24 @@ def scale_infiltration(
 
 
 def scale_material_conductivity(
-    objects: List[IdfObject], factor: float
+    objects: List[IdfObject],
+    factor: float,
+    material_names: Optional[List[str]] = None,
 ) -> Tuple[List[IdfObject], List[Dict[str, Any]]]:
+    """Scale the conductivity of the ``Material`` objects.
+
+    With ``material_names`` given (``None`` = blanket), only the ``Material``
+    objects whose name is listed are scaled; every other ``Material`` (an
+    interior carpet, a ceiling tile, ...) is left exactly as shipped.
+    """
+    wanted = None if material_names is None else set(material_names)
     changes: List[Dict[str, Any]] = []
     for obj in objects:
         if obj.otype.lower() != "material":
             continue
         if len(obj.fields) < 4:
+            continue
+        if wanted is not None and obj.name.strip() not in wanted:
             continue
         old = _to_float(obj.fields[3])
         if old is None:
@@ -187,6 +238,46 @@ def scale_material_conductivity(
             }
         )
     return objects, changes
+
+
+def envelope_construction_names(objects: List[IdfObject]) -> List[str]:
+    """Names of the constructions used by the outdoor-facing opaque envelope.
+
+    This is E1's construction selection, reused as-is: the constructions
+    referenced by outdoor-facing wall and roof surfaces (see
+    :func:`ecms.opaque_envelope_area`).  Interior constructions (ceiling,
+    interior wall, floor slab) are therefore never selected.
+    """
+    # Imported lazily: ``ecms`` imports this module, so a module-level
+    # import here would be circular.
+    from ecms import opaque_envelope_area
+
+    _, by_construction = opaque_envelope_area(objects)
+    return sorted(by_construction)
+
+
+def envelope_material_names(objects: List[IdfObject]) -> List[str]:
+    """Names of the ``Material`` objects used by the outdoor-facing envelope.
+
+    The materials are the layers of the constructions selected by
+    :func:`envelope_construction_names` (E1's selection).  A material that is
+    also used by an interior construction is still returned: it *is* part of
+    the envelope.
+    """
+    constructions = set(envelope_construction_names(objects))
+    names: List[str] = []
+    for obj in objects:
+        if obj.otype.lower() != "construction":
+            continue
+        if not obj.fields:
+            continue
+        if obj.fields[0].strip() not in constructions:
+            continue
+        for layer in obj.fields[1:]:
+            layer = layer.strip()
+            if layer and layer not in names:
+                names.append(layer)
+    return names
 
 
 _UNTIL_RE = re.compile(r"^(Until:\s*\d{1,2}:\d{2})\s*,\s*(.+)$")
@@ -272,16 +363,32 @@ def ensure_output_meters(
 
 def apply_params(
     idf_text: str,
-    params: Dict[str, float],
+    params: Dict[str, Any],
     schedule_name: str = "Clg-SetP-Sch",
+    envelope_conductivity_scale_scope: Optional[str] = None,
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """Apply the named parameters to an IDF text.
 
     Returns the new IDF text and the list of individual value changes.
+
+    The conductivity scale is *blanket* (every ``Material``) unless the
+    opt-in scope is set to ``"envelope"``.  The scope may be given either as
+    the ``envelope_conductivity_scale_scope`` key of ``params`` or as the
+    ``envelope_conductivity_scale_scope`` argument (the argument wins).
     """
-    unknown = set(params) - set(PARAM_NAMES)
+    unknown = set(params) - set(PARAM_NAMES) - {SCOPE_PARAM_NAME}
     if unknown:
         raise ValueError(f"unknown calibration parameters: {sorted(unknown)}")
+
+    scope = envelope_conductivity_scale_scope
+    if scope is None:
+        scope = params.get(SCOPE_PARAM_NAME, DEFAULT_CONDUCTIVITY_SCOPE)
+    scope = str(scope).strip().lower()
+    if scope not in CONDUCTIVITY_SCOPES:
+        raise ValueError(
+            f"unknown {SCOPE_PARAM_NAME}: {scope!r} "
+            f"(known scopes: {', '.join(CONDUCTIVITY_SCOPES)})"
+        )
 
     objects = parse_idf(idf_text)
     changes: List[Dict[str, Any]] = []
@@ -296,7 +403,16 @@ def apply_params(
 
     factor = float(params.get("envelope_conductivity_scale", 1.0))
     if factor != 1.0:
-        objects, ch = scale_material_conductivity(objects, factor)
+        if scope == SCOPE_ENVELOPE:
+            names = envelope_material_names(objects)
+            if not names:
+                raise ValueError(
+                    "envelope_conductivity_scale_scope='envelope': no outdoor-facing "
+                    "opaque envelope materials found in the IDF"
+                )
+            objects, ch = scale_material_conductivity(objects, factor, names)
+        else:
+            objects, ch = scale_material_conductivity(objects, factor)
         changes.extend(ch)
 
     offset = float(params.get("cooling_setpoint_offset_k", 0.0))
