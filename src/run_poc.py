@@ -153,7 +153,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     ap.add_argument("--out", type=Path, default=RUNS_DIR / "headline_table.md")
     args = ap.parse_args(argv)
 
-    binary = R.find_energyplus()
+    try:
+        binary = R.find_energyplus()
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc))
     version = R.energyplus_version(binary)
     install = find_install_dir(binary)
     idf = install / "ExampleFiles" / IDF_NAME
