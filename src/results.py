@@ -56,9 +56,20 @@ def read_energyplus_csv(path: Path) -> Tuple[np.ndarray, np.ndarray, Dict[str, n
     columns: Dict[str, List[float]] = {}
     with open(path, newline="") as fh:
         reader = csv.reader(fh)
-        header = next(reader)
+        try:
+            header = next(reader)
+        except StopIteration:
+            raise ValueError(
+                f"{path}: empty EnergyPlus CSV - the file has no header row; "
+                "the EnergyPlus run produced no readable output"
+            ) from None
         header = [h.strip() for h in header]
         names = header[1:]
+        if not names:
+            raise ValueError(
+                f"{path}: headerless EnergyPlus CSV - the header row "
+                f"{header!r} contains no output-variable columns"
+            )
         for name in names:
             columns[name] = []
         for row in reader:
@@ -85,6 +96,19 @@ def read_energyplus_csv(path: Path) -> Tuple[np.ndarray, np.ndarray, Dict[str, n
     )
 
 
+def _first_difference(
+    m_months: np.ndarray,
+    m_hours: np.ndarray,
+    months: np.ndarray,
+    hours: np.ndarray,
+) -> Optional[int]:
+    """Index of the first differing timestamp, or None when they match."""
+    for i in range(min(len(m_months), len(months))):
+        if m_months[i] != months[i] or m_hours[i] != hours[i]:
+            return i
+    return None
+
+
 def load_run_series(run_dir: Path, run_id: Optional[str] = None) -> RunSeries:
     """Load the hourly series of a recorded run directory."""
     run_dir = Path(run_dir)
@@ -92,8 +116,20 @@ def load_run_series(run_dir: Path, run_id: Optional[str] = None) -> RunSeries:
     meter_file = run_dir / "eplusMeter.csv"
     if meter_file.is_file():
         m_months, m_hours, m_columns = read_energyplus_csv(meter_file)
-        if len(m_months) == len(months) and np.array_equal(m_months, months):
-            columns.update(m_columns)
+        if len(m_months) != len(months):
+            raise ValueError(
+                f"{meter_file.name} has {len(m_months)} hourly rows but "
+                f"eplus.csv has {len(months)} rows; the meter and output "
+                "files of the run do not match"
+            )
+        if not np.array_equal(m_months, months) or not np.array_equal(m_hours, hours):
+            raise ValueError(
+                f"{meter_file.name} timestamps do not match eplus.csv "
+                f"({len(m_months)} rows each, first differing timestamp at "
+                f"index {_first_difference(m_months, m_hours, months, hours)}); "
+                "the meter and output files of the run do not match"
+            )
+        columns.update(m_columns)
     return RunSeries(
         run_id=run_id or run_dir.name,
         months=months,

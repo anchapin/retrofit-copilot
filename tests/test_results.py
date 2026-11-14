@@ -73,6 +73,61 @@ def test_missing_meter_raises(tmp_path):
         RES.facility_energy_kwh(series)
 
 
+def test_empty_eplus_csv_raises_named_error(tmp_path):
+    csv_path = tmp_path / "eplus.csv"
+    csv_path.write_text("")
+    with pytest.raises(ValueError) as excinfo:
+        RES.read_energyplus_csv(csv_path)
+    assert "eplus.csv" in str(excinfo.value)
+
+
+def test_headerless_eplus_csv_raises_named_error(tmp_path):
+    csv_path = tmp_path / "eplus.csv"
+    csv_path.write_text("Date/Time\n")
+    with pytest.raises(ValueError) as excinfo:
+        RES.read_energyplus_csv(csv_path)
+    assert "eplus.csv" in str(excinfo.value)
+
+
+def test_meter_row_count_mismatch_raises(tmp_path):
+    csv_path = tmp_path / "eplus.csv"
+    _write_csv(
+        csv_path,
+        ["Date/Time", "SPACE1-1:Zone Air Temperature [C](Hourly)"],
+        [[" 01/01  01:00:00", 21.0], [" 01/01  02:00:00", 22.0]],
+    )
+    meter_path = tmp_path / "eplusMeter.csv"
+    _write_csv(
+        meter_path,
+        ["Date/Time", "Electricity:Facility [J](Hourly)"],
+        [[" 01/01  01:00:00", 3.6e6]],
+    )
+    with pytest.raises(ValueError) as excinfo:
+        RES.load_run_series(tmp_path, "unit")
+    message = str(excinfo.value)
+    assert "eplusMeter.csv" in message
+    assert "eplus.csv" in message
+    assert "1" in message and "2" in message
+
+
+def test_meter_timestamp_mismatch_raises(tmp_path):
+    csv_path = tmp_path / "eplus.csv"
+    _write_csv(
+        csv_path,
+        ["Date/Time", "SPACE1-1:Zone Air Temperature [C](Hourly)"],
+        [[" 01/01  01:00:00", 21.0]],
+    )
+    meter_path = tmp_path / "eplusMeter.csv"
+    _write_csv(
+        meter_path,
+        ["Date/Time", "Electricity:Facility [J](Hourly)"],
+        [[" 02/02  05:00:00", 3.6e6]],
+    )
+    with pytest.raises(ValueError) as excinfo:
+        RES.load_run_series(tmp_path, "unit")
+    assert "eplusMeter.csv" in str(excinfo.value)
+
+
 def test_zone_mean_temperature_averages_space_zones(tmp_path):
     csv_path = tmp_path / "eplus.csv"
     _write_csv(

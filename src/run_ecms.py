@@ -110,10 +110,18 @@ def load_calibrated_params() -> Dict[str, float]:
 def fuel_kwh(series: RES.RunSeries) -> Dict[str, float]:
     """Annual energy per fuel [kWh] from the recorded meters."""
     out = {"electricity": 0.0, "natural_gas": 0.0}
+    found = False
     if series.has("Electricity:Facility [J](Hourly)"):
         out["electricity"] = float(series.column("Electricity:Facility [J](Hourly)").sum()) / RES.JOULES_PER_KWH
+        found = True
     if series.has("NaturalGas:Facility [J](Hourly)"):
         out["natural_gas"] = float(series.column("NaturalGas:Facility [J](Hourly)").sum()) / RES.JOULES_PER_KWH
+        found = True
+    if not found:
+        raise KeyError(
+            "no hourly facility fuel meter found in the run outputs; "
+            "requested meters are missing"
+        )
     out["total"] = out["electricity"] + out["natural_gas"]
     return out
 
