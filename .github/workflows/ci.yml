@@ -1,0 +1,27 @@
+name: CI
+
+'on':
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    name: pytest (ubuntu-latest, Python 3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # The test suite is EnergyPlus-free by design: EnergyPlus is never
+      # downloaded here, and recorded-runs tests skip when runs/ is absent.
+      - name: Run test suite
+        run: python3 -m pytest tests/ -q
